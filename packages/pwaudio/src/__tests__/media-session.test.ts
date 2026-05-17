@@ -415,13 +415,19 @@ describe("PWAudio Media Session Integration", () => {
 			expect(mock.setActionHandler.mock.calls.length).toBeGreaterThanOrEqual(8);
 		});
 
-		it("throws InvalidStateError after destroy — deferred to Plan 10", () => {
+		it("throws InvalidStateError after destroy", () => {
 			const player = new PWAudio();
 			player.destroy();
 
 			expect(() => {
 				player.mediaSessionEnabled = true;
-			}).not.toThrow();
+			}).toThrow(DOMException);
+			try {
+				player.mediaSessionEnabled = true;
+			} catch (e) {
+				expect((e as DOMException).name).toBe("InvalidStateError");
+				expect((e as DOMException).message).toBe("PWAudio has been destroyed");
+			}
 		});
 	});
 

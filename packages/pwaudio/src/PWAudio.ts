@@ -118,9 +118,7 @@ export class PWAudio {
 	// ─── Playback ───
 
 	async play(): Promise<void> {
-		if (this.#destroyed) {
-			throw new DOMException("PWAudio has been destroyed", "InvalidStateError");
-		}
+		this.#throwIfDestroyed();
 
 		if (this.#tracks.length === 0) {
 			return Promise.reject(new Error("No track loaded"));
@@ -155,9 +153,7 @@ export class PWAudio {
 	}
 
 	pause(): void {
-		if (this.#destroyed) {
-			throw new DOMException("PWAudio has been destroyed", "InvalidStateError");
-		}
+		this.#throwIfDestroyed();
 		this.#audio.pause();
 	}
 
@@ -169,9 +165,7 @@ export class PWAudio {
 	 * the native side effects (pause, seeking, seeked) are unavoidable.
 	 */
 	stop(): void {
-		if (this.#destroyed) {
-			throw new DOMException("PWAudio has been destroyed", "InvalidStateError");
-		}
+		this.#throwIfDestroyed();
 		this.#audio.pause();
 		this.#audio.currentTime = 0;
 		this.#stopped = true;
@@ -196,31 +190,34 @@ export class PWAudio {
 	}
 
 	get endedState(): boolean {
+		if (this.#destroyed) return false;
 		return this.#endedState;
 	}
 
 	// ─── Seek & Time ───
 
 	get currentTime(): number {
+		if (this.#destroyed) return 0;
 		return this.#audio.currentTime;
 	}
 
 	set currentTime(seconds: number) {
-		if (this.#destroyed) {
-			throw new DOMException("PWAudio has been destroyed", "InvalidStateError");
-		}
+		this.#throwIfDestroyed();
 		this.#audio.currentTime = seconds;
 	}
 
 	get duration(): number {
+		if (this.#destroyed) return NaN;
 		return this.#audio.duration;
 	}
 
 	get buffered(): TimeRanges {
+		if (this.#destroyed) return this.#audio.buffered; // empty after destroy
 		return this.#audio.buffered;
 	}
 
 	get seeking(): boolean {
+		if (this.#destroyed) return false;
 		return this.#audio.seeking;
 	}
 
@@ -236,24 +233,22 @@ export class PWAudio {
 	 * but the value may be ignored by the OS.
 	 */
 	get volume(): number {
+		if (this.#destroyed) return 0;
 		return this.#audio.volume;
 	}
 
 	set volume(v: number) {
-		if (this.#destroyed) {
-			throw new DOMException("PWAudio has been destroyed", "InvalidStateError");
-		}
+		this.#throwIfDestroyed();
 		this.#audio.volume = clampVolume(v);
 	}
 
 	get muted(): boolean {
+		if (this.#destroyed) return false;
 		return this.#audio.muted;
 	}
 
 	set muted(m: boolean) {
-		if (this.#destroyed) {
-			throw new DOMException("PWAudio has been destroyed", "InvalidStateError");
-		}
+		this.#throwIfDestroyed();
 		this.#audio.muted = m;
 	}
 
@@ -265,13 +260,12 @@ export class PWAudio {
 	 * Default: 1
 	 */
 	get playbackRate(): number {
+		if (this.#destroyed) return 1;
 		return this.#audio.playbackRate;
 	}
 
 	set playbackRate(rate: number) {
-		if (this.#destroyed) {
-			throw new DOMException("PWAudio has been destroyed", "InvalidStateError");
-		}
+		this.#throwIfDestroyed();
 		this.#audio.playbackRate = clampPlaybackRate(rate);
 	}
 
@@ -283,6 +277,7 @@ export class PWAudio {
 	 * Both properties are set for maximum compatibility.
 	 */
 	get preservesPitch(): boolean {
+		if (this.#destroyed) return true;
 		if ("preservesPitch" in this.#audio) {
 			return (this.#audio as any).preservesPitch;
 		}
@@ -298,9 +293,7 @@ export class PWAudio {
 	 * maximum browser compatibility.
 	 */
 	set preservesPitch(v: boolean) {
-		if (this.#destroyed) {
-			throw new DOMException("PWAudio has been destroyed", "InvalidStateError");
-		}
+		this.#throwIfDestroyed();
 		this.#applyPreservesPitch(v);
 	}
 
@@ -316,6 +309,7 @@ export class PWAudio {
 	// ─── Source (single-track mode) ───
 
 	get src(): string {
+		if (this.#destroyed) return "";
 		return this.#audio.src;
 	}
 
@@ -330,9 +324,7 @@ export class PWAudio {
 	 * player.tracks instead.
 	 */
 	set src(url: string) {
-		if (this.#destroyed) {
-			throw new DOMException("PWAudio has been destroyed", "InvalidStateError");
-		}
+		this.#throwIfDestroyed();
 		// Destructive: replaces entire playlist with single-track
 		const previousIndex = this.#currentIndex;
 		this.#tracks = [{ src: url }];
@@ -354,13 +346,12 @@ export class PWAudio {
 	#preloadStrategy: PreloadStrategy = DEFAULTS.preload;
 
 	get preload(): PreloadStrategy {
+		if (this.#destroyed) return "none";
 		return this.#preloadStrategy;
 	}
 
 	set preload(strategy: PreloadStrategy) {
-		if (this.#destroyed) {
-			throw new DOMException("PWAudio has been destroyed", "InvalidStateError");
-		}
+		this.#throwIfDestroyed();
 		this.#preloadStrategy = strategy;
 		this.#audio.preload = strategy;
 	}
@@ -368,13 +359,12 @@ export class PWAudio {
 	// ─── Playlist (basic getter/setter — navigation in Plan 04) ───
 
 	get tracks(): readonly Track[] {
+		if (this.#destroyed) return [];
 		return this.#tracks;
 	}
 
 	set tracks(newTracks: Track[]) {
-		if (this.#destroyed) {
-			throw new DOMException("PWAudio has been destroyed", "InvalidStateError");
-		}
+		this.#throwIfDestroyed();
 		const previousIndex = this.#currentIndex;
 		const currentSrc = this.#currentTrack()?.src;
 
@@ -406,10 +396,12 @@ export class PWAudio {
 	}
 
 	get currentIndex(): number {
+		if (this.#destroyed) return -1;
 		return this.#currentIndex;
 	}
 
 	get currentTrack(): Track | null {
+		if (this.#destroyed) return null;
 		return this.#currentTrack();
 	}
 
@@ -423,26 +415,24 @@ export class PWAudio {
 	// ─── Repeat (basic getter/setter — logic in Plan 05) ───
 
 	get repeat(): RepeatMode {
+		if (this.#destroyed) return "off";
 		return this.#repeat;
 	}
 
 	set repeat(mode: RepeatMode) {
-		if (this.#destroyed) {
-			throw new DOMException("PWAudio has been destroyed", "InvalidStateError");
-		}
+		this.#throwIfDestroyed();
 		this.#repeat = mode;
 	}
 
 	// ─── Shuffle (basic getter/setter — logic in Plan 05) ───
 
 	get shuffle(): ShuffleMode {
+		if (this.#destroyed) return "off";
 		return this.#shuffle;
 	}
 
 	set shuffle(mode: ShuffleMode) {
-		if (this.#destroyed) {
-			throw new DOMException("PWAudio has been destroyed", "InvalidStateError");
-		}
+		this.#throwIfDestroyed();
 		if (this.#shuffle === mode) return; // no change
 
 		this.#shuffle = mode;
@@ -459,26 +449,24 @@ export class PWAudio {
 	// ─── Previous restart threshold ───
 
 	get previousRestartThreshold(): number {
+		if (this.#destroyed) return 0;
 		return this.#previousRestartThreshold;
 	}
 
 	set previousRestartThreshold(seconds: number) {
-		if (this.#destroyed) {
-			throw new DOMException("PWAudio has been destroyed", "InvalidStateError");
-		}
+		this.#throwIfDestroyed();
 		this.#previousRestartThreshold = seconds;
 	}
 
 	// ─── Media Session ──
 
 	get mediaSessionEnabled(): boolean {
+		if (this.#destroyed) return false;
 		return this.#mediaSession.enabled;
 	}
 
 	set mediaSessionEnabled(v: boolean) {
-		if (this.#destroyed) {
-			throw new DOMException("PWAudio has been destroyed", "InvalidStateError");
-		}
+		this.#throwIfDestroyed();
 		this.#mediaSessionEnabled = v;
 		this.#mediaSession.enabled = v;
 		if (v) {
@@ -491,14 +479,17 @@ export class PWAudio {
 	// ─── Events ───
 
 	on<K extends PlayerEvent>(event: K, handler: PlayerEventHandlerMap[K]): void {
+		this.#throwIfDestroyed();
 		this.#events.on(event, handler);
 	}
 
 	once<K extends PlayerEvent>(event: K, handler: PlayerEventHandlerMap[K]): void {
+		this.#throwIfDestroyed();
 		this.#events.once(event, handler);
 	}
 
 	off<K extends PlayerEvent>(event: K, handler: PlayerEventHandlerMap[K]): void {
+		this.#throwIfDestroyed();
 		this.#events.off(event, handler);
 	}
 
@@ -567,9 +558,7 @@ export class PWAudio {
 	// ─── Playlist navigation ───
 
 	async next(): Promise<void> {
-		if (this.#destroyed) {
-			throw new DOMException("PWAudio has been destroyed", "InvalidStateError");
-		}
+		this.#throwIfDestroyed();
 
 		if (this.#tracks.length === 0) {
 			return;
@@ -621,9 +610,7 @@ export class PWAudio {
 	}
 
 	async previous(): Promise<void> {
-		if (this.#destroyed) {
-			throw new DOMException("PWAudio has been destroyed", "InvalidStateError");
-		}
+		this.#throwIfDestroyed();
 
 		if (this.#tracks.length === 0) {
 			return; // empty playlist — no-op
@@ -678,9 +665,7 @@ export class PWAudio {
 	}
 
 	async goto(index: number): Promise<void> {
-		if (this.#destroyed) {
-			throw new DOMException("PWAudio has been destroyed", "InvalidStateError");
-		}
+		this.#throwIfDestroyed();
 
 		if (this.#tracks.length === 0) {
 			return; // empty playlist — no-op
@@ -800,9 +785,64 @@ export class PWAudio {
 		}
 	};
 
-	// ─── Placeholder for Plan 10 ───
+	// ─── Lifecycle ───
 
+	/**
+	 * Tear down the player completely:
+	 *   1. Pause playback
+	 *   2. Remove all event listeners (native proxies + internal + synthetic)
+	 *   3. Clear Media Session metadata and action handlers
+	 *   4. Set audio.src = '' and call audio.load() to abort in-flight requests
+	 *   5. Remove the src attribute
+	 *   6. Set the #destroyed flag
+	 *
+	 * Idempotent — calling multiple times is safe.
+	 * After destroy(), all setters and methods throw DOMException
+	 * with name "InvalidStateError". Getters return safe defaults.
+	 */
 	destroy(): void {
-		// Filled in Plan 10
+		if (this.#destroyed) return; // Idempotent
+
+		// 1. Pause playback
+		this.#audio.pause();
+
+		// 2. Remove all event listeners
+
+		// Remove proxied native events (play, pause, ended, timeupdate, etc.)
+		this.#events.detachNativeProxies(this.#audio);
+
+		// Remove internal native handlers
+		this.#audio.removeEventListener("ended", this.#handleEnded);
+		this.#audio.removeEventListener("error", this.#handleError);
+		this.#audio.removeEventListener("timeupdate", this.#handleTimeUpdate);
+		this.#audio.removeEventListener("ratechange", this.#handleRateChange);
+		this.#audio.removeEventListener("play", this.#handlePlayState);
+		this.#audio.removeEventListener("pause", this.#handlePauseState);
+
+		// Remove all synthetic event listeners
+		this.#events.removeAllListeners();
+
+		// 3. Clear Media Session metadata and action handlers
+		this.#mediaSession.clear();
+
+		// 4. Abort any in-flight network request
+		this.#audio.src = "";
+		this.#audio.load();
+
+		// 5. Remove src attribute
+		this.#audio.removeAttribute("src");
+
+		// 6. Set destroyed flag
+		this.#destroyed = true;
+	}
+
+	/**
+	 * Throw a DOMException if the instance has been destroyed.
+	 * Used as a guard at the top of every public setter and mutating method.
+	 */
+	#throwIfDestroyed(): void {
+		if (this.#destroyed) {
+			throw new DOMException("PWAudio has been destroyed", "InvalidStateError");
+		}
 	}
 }
