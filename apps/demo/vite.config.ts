@@ -2,6 +2,7 @@ import { defineConfig } from "vite";
 import { resolve } from "node:path";
 
 export default defineConfig({
+	base: "/pwaudio/",
 	resolve: {
 		alias: {
 			pwaudio: resolve(
