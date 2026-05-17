@@ -1,0 +1,1 @@
+- After every change, read the README.md file and ensure that it's still accurate. Adjust accordingly.

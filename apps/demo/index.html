@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>pwaudio demo</title>
+  </head>
+  <body>
+    <div id="app">
+      <h1>pwaudio demo</h1>
+      <p>A headless audio player library for Progressive Web Applications</p>
+
+      <button id="play">▶ Play</button>
+      <button id="pause">⏸ Pause</button>
+
+      <div>
+        <label>
+          Volume
+          <input
+            id="volume"
+            type="range"
+            min="0"
+            max="1"
+            step="0.01"
+            value="1"
+          />
+        </label>
+      </div>
+
+      <div>
+        <label>
+          Seek
+          <input id="seek" type="range" min="0" max="100" step="1" value="0" />
+        </label>
+      </div>
+
+      <p id="status">Idle</p>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

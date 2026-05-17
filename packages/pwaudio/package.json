@@ -1,0 +1,45 @@
+{
+  "name": "pwaudio",
+  "version": "0.1.0-alpha.1",
+  "description": "A headless audio player library for Progressive Web Applications",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "pwa",
+    "audio",
+    "headless",
+    "library",
+    "typescript"
+  ],
+  "author": "Curt Howard <curt@portugly.com>",
+  "license": "DBAD",
+  "devDependencies": {
+    "happy-dom": "^20.9.0",
+    "tsup": "^8.4.0",
+    "vitest": "4.1.6"
+  }
+}
