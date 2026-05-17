@@ -13,3 +13,9 @@ Thumbs.db
 
 # AI
 .pi-lens
+
+# ESLint
+.eslintcache
+
+# Prettier
+.prettiercache

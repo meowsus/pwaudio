@@ -10,59 +10,59 @@ export class PWAudio {
 		if (src) this.audio.src = src;
 	}
 
-	get src(): string {
+	public get src(): string {
 		return this.audio.src;
 	}
 
-	set src(value: string) {
+	public set src(value: string) {
 		this.audio.src = value;
 	}
 
-	play(): Promise<void> {
+	public play(): Promise<void> {
 		return this.audio.play();
 	}
 
-	pause(): void {
+	public pause(): void {
 		this.audio.pause();
 	}
 
-	get paused(): boolean {
+	public get paused(): boolean {
 		return this.audio.paused;
 	}
 
-	get duration(): number {
+	public get duration(): number {
 		return this.audio.duration;
 	}
 
-	get currentTime(): number {
+	public get currentTime(): number {
 		return this.audio.currentTime;
 	}
 
-	set currentTime(value: number) {
+	public set currentTime(value: number) {
 		this.audio.currentTime = value;
 	}
 
-	get volume(): number {
+	public get volume(): number {
 		return this.audio.volume;
 	}
 
-	set volume(value: number) {
+	public set volume(value: number) {
 		this.audio.volume = value;
 	}
 
-	get muted(): boolean {
+	public get muted(): boolean {
 		return this.audio.muted;
 	}
 
-	set muted(value: boolean) {
+	public set muted(value: boolean) {
 		this.audio.muted = value;
 	}
 
-	on(event: string, handler: EventListener): void {
+	public on(event: string, handler: EventListener): void {
 		this.audio.addEventListener(event, handler);
 	}
 
-	off(event: string, handler: EventListener): void {
+	public off(event: string, handler: EventListener): void {
 		this.audio.removeEventListener(event, handler);
 	}
 }

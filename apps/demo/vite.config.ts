@@ -6,10 +6,7 @@ export default defineConfig({
 	base: "/pwaudio/",
 	resolve: {
 		alias: {
-			pwaudio: resolve(
-				import.meta.dirname,
-				"../../packages/pwaudio/src/index.ts",
-			),
+			pwaudio: resolve(import.meta.dirname, "../../packages/pwaudio/src/index.ts"),
 		},
 	},
 	server: {
@@ -23,8 +20,7 @@ export default defineConfig({
 			manifest: {
 				name: "pwaudio — Headless Audio Player",
 				short_name: "pwaudio",
-				description:
-					"A headless audio player library for Progressive Web Applications",
+				description: "A headless audio player library for Progressive Web Applications",
 				theme_color: "#632CC7",
 				background_color: "#ffffff",
 				display: "standalone",

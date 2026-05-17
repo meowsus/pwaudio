@@ -5,7 +5,7 @@ import { registerSW } from "virtual:pwa-register";
 const updateSW = registerSW({
 	onNeedRefresh() {
 		if (confirm("New content available. Reload to update?")) {
-			updateSW(true);
+			void updateSW(true);
 		}
 	},
 	onOfflineReady() {
@@ -14,30 +14,28 @@ const updateSW = registerSW({
 });
 
 // Request persistent storage to protect cached audio from eviction
-if (navigator.storage && navigator.storage.persist) {
-	navigator.storage.persist().then((granted) => {
-		if (granted) {
-			console.log("Persistent storage granted — cache protected from eviction");
-		} else {
-			console.log(
-				"Persistent storage denied — browser may evict cache under pressure",
-			);
-		}
-	});
+void navigator.storage.persist().then((granted) => {
+	if (granted) {
+		console.log("Persistent storage granted — cache protected from eviction");
+	} else {
+		console.log("Persistent storage denied — browser may evict cache under pressure");
+	}
+});
+
+const player = new PWAudio("https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3");
+
+const playBtn = document.getElementById("play");
+const pauseBtn = document.getElementById("pause");
+const volumeInput = document.getElementById("volume") as HTMLInputElement | null;
+const seekInput = document.getElementById("seek") as HTMLInputElement | null;
+const statusEl = document.getElementById("status");
+
+if (!playBtn || !pauseBtn || !volumeInput || !seekInput || !statusEl) {
+	throw new Error("Required DOM elements not found");
 }
 
-const player = new PWAudio(
-	"https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3",
-);
-
-const playBtn = document.getElementById("play")!;
-const pauseBtn = document.getElementById("pause")!;
-const volumeInput = document.getElementById("volume") as HTMLInputElement;
-const seekInput = document.getElementById("seek") as HTMLInputElement;
-const statusEl = document.getElementById("status")!;
-
-playBtn.addEventListener("click", async () => {
-	await player.play();
+playBtn.addEventListener("click", () => {
+	void player.play();
 	statusEl.textContent = "Playing";
 });
 

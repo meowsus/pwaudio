@@ -108,20 +108,20 @@ Synthetic events carry a `detail` property with relevant data (e.g., `{ previous
 // ─── Track ───
 
 interface Track {
-  /** URL to the audio file */
-  src: string;
-  /** Track title — used for Media Session metadata */
-  title?: string;
-  /** Artist name — used for Media Session metadata */
-  artist?: string;
-  /** Album name — used for Media Session metadata */
-  album?: string;
-  /** Artwork images — used for lock screen / notification display */
-  artwork?: MediaImage[];
-  /** Pre-known duration in seconds (avoids waiting for metadata load) */
-  duration?: number;
-  /** Consumer-defined passthrough — never inspected by the library */
-  metadata?: unknown;
+	/** URL to the audio file */
+	src: string;
+	/** Track title — used for Media Session metadata */
+	title?: string;
+	/** Artist name — used for Media Session metadata */
+	artist?: string;
+	/** Album name — used for Media Session metadata */
+	album?: string;
+	/** Artwork images — used for lock screen / notification display */
+	artwork?: MediaImage[];
+	/** Pre-known duration in seconds (avoids waiting for metadata load) */
+	duration?: number;
+	/** Consumer-defined passthrough — never inspected by the library */
+	metadata?: unknown;
 }
 
 // ─── Enums / Unions ───
@@ -133,62 +133,62 @@ type PreloadStrategy = "none" | "metadata" | "auto";
 // ─── Events ───
 
 type PlayerEvent =
-  // Native HTMLAudioElement events
-  | "play"
-  | "pause"
-  | "stop"
-  | "ended"
-  | "timeupdate"
-  | "durationchange"
-  | "volumechange"
-  | "ratechange"
-  | "seeking"
-  | "seeked"
-  | "waiting"
-  | "canplay"
-  | "error"
-  // Synthetic pwaudio events
-  | "trackchange"
-  | "playlistchange"
-  | "mediacardchange";
+	// Native HTMLAudioElement events
+	| "play"
+	| "pause"
+	| "stop"
+	| "ended"
+	| "timeupdate"
+	| "durationchange"
+	| "volumechange"
+	| "ratechange"
+	| "seeking"
+	| "seeked"
+	| "waiting"
+	| "canplay"
+	| "error"
+	// Synthetic pwaudio events
+	| "trackchange"
+	| "playlistchange"
+	| "mediacardchange";
 
 /** Detail payload for synthetic events */
 interface TrackChangeDetail {
-  previousIndex: number;
-  currentIndex: number;
-  track: Track | null;
+	previousIndex: number;
+	currentIndex: number;
+	track: Track | null;
 }
 
 interface PlaylistChangeDetail {
-  tracks: readonly Track[];
+	tracks: readonly Track[];
 }
 
 interface MediaCardChangeDetail {
-  title: string;
-  artist: string;
-  album: string;
-  artwork: MediaImage[];
+	title: string;
+	artist: string;
+	album: string;
+	artwork: MediaImage[];
 }
 
 // ─── Options ───
 
 interface PWAudioOptions {
-  /** Initial single-track source (shorthand for tracks=[{src}]) */
-  src?: string;
-  /** Initial playlist */
-  tracks?: Track[];
-  /** Initial volume (0–1). Default: 1 */
-  volume?: number;
-  /** Initial playback rate. Default: 1 */
-  playbackRate?: number;
-  /** Initial repeat mode. Default: 'off' */
-  repeat?: RepeatMode;
-  /** Initial shuffle mode. Default: 'off' */
-  shuffle?: ShuffleMode;
-  /** Preload strategy. Default: 'metadata' */
-  preload?: PreloadStrategy;
-  /** Enable Media Session API integration. Default: true */
-  mediaSessionEnabled?: boolean;
+	/** Initial single-track source (shorthand for tracks=[{src}]) */
+	src?: string;
+	/** Initial playlist */
+	tracks?: Track[];
+	/** Initial volume (0–1). Default: 1 */
+	volume?: number;
+	/** Initial playback rate. Default: 1 */
+	playbackRate?: number;
+	/** Initial repeat mode. Default: 'off' */
+	repeat?: RepeatMode;
+	/** Initial shuffle mode. Default: 'off' */
+	shuffle?: ShuffleMode;
+	/** Preload strategy. Default: 'metadata' */
+	preload?: PreloadStrategy;
+	/** Enable Media Session API integration. Default: true */
+	mediaSessionEnabled?: boolean;
 }
 ```
 
@@ -198,170 +198,170 @@ interface PWAudioOptions {
 
 ```ts
 class PWAudio {
-  constructor(options?: PWAudioOptions);
+	constructor(options?: PWAudioOptions);
 
-  // ─── Playback ───
+	// ─── Playback ───
 
-  /**
-   * Start or resume playback.
-   * Returns a Promise that resolves on success or rejects with
-   * NotAllowedError if autoplay is blocked by browser policy.
-   */
-  play(): Promise<void>;
+	/**
+	 * Start or resume playback.
+	 * Returns a Promise that resolves on success or rejects with
+	 * NotAllowedError if autoplay is blocked by browser policy.
+	 */
+	play(): Promise<void>;
 
-  /** Pause playback. Current position is retained. */
-  pause(): void;
+	/** Pause playback. Current position is retained. */
+	pause(): void;
 
-  /** Stop playback: pause and seek to 0. Emits 'stop'. */
-  stop(): void;
+	/** Stop playback: pause and seek to 0. Emits 'stop'. */
+	stop(): void;
 
-  /** Whether audio is currently playing. */
-  get playing(): boolean;
+	/** Whether audio is currently playing. */
+	get playing(): boolean;
 
-  /** Whether audio is paused (not playing, but not stopped). */
-  get paused(): boolean;
+	/** Whether audio is paused (not playing, but not stopped). */
+	get paused(): boolean;
 
-  // ─── Seek & Time ───
+	// ─── Seek & Time ───
 
-  /** Current playback position in seconds. */
-  get currentTime(): number;
-  set currentTime(seconds: number);
+	/** Current playback position in seconds. */
+	get currentTime(): number;
+	set currentTime(seconds: number);
 
-  /** Duration of current track in seconds. NaN if unknown. */
-  get duration(): number;
+	/** Duration of current track in seconds. NaN if unknown. */
+	get duration(): number;
 
-  /** Buffered time ranges from HTMLAudioElement. */
-  get buffered(): TimeRanges;
+	/** Buffered time ranges from HTMLAudioElement. */
+	get buffered(): TimeRanges;
 
-  /** Whether a seek operation is in progress. */
-  get seeking(): boolean;
+	/** Whether a seek operation is in progress. */
+	get seeking(): boolean;
 
-  // ─── Volume ───
+	// ─── Volume ───
 
-  /** Volume level (0–1). Default: 1 */
-  get volume(): number;
-  set volume(v: number);
+	/** Volume level (0–1). Default: 1 */
+	get volume(): number;
+	set volume(v: number);
 
-  /** Whether audio is muted. Default: false */
-  get muted(): boolean;
-  set muted(m: boolean);
+	/** Whether audio is muted. Default: false */
+	get muted(): boolean;
+	set muted(m: boolean);
 
-  // ─── Playback Rate ───
+	// ─── Playback Rate ───
 
-  /**
-   * Playback rate multiplier (0.25–4.0, clamped).
-   * Default: 1
-   */
-  get playbackRate(): number;
-  set playbackRate(rate: number);
+	/**
+	 * Playback rate multiplier (0.25–4.0, clamped).
+	 * Default: 1
+	 */
+	get playbackRate(): number;
+	set playbackRate(rate: number);
 
-  /**
-   * Whether pitch is preserved when playbackRate ≠ 1.
-   * Default: true (maps to HTMLAudioElement.preservesPitch)
-   */
-  get preservesPitch(): boolean;
-  set preservesPitch(v: boolean);
+	/**
+	 * Whether pitch is preserved when playbackRate ≠ 1.
+	 * Default: true (maps to HTMLAudioElement.preservesPitch)
+	 */
+	get preservesPitch(): boolean;
+	set preservesPitch(v: boolean);
 
-  // ─── Source (single-track mode) ───
+	// ─── Source (single-track mode) ───
 
-  /** Current audio source URL. */
-  get src(): string;
+	/** Current audio source URL. */
+	get src(): string;
 
-  /**
-   * Set audio source directly (single-track mode).
-   * If a playlist is active, this clears the playlist
-   * and replaces it with a single entry.
-   */
-  set src(url: string);
+	/**
+	 * Set audio source directly (single-track mode).
+	 * If a playlist is active, this clears the playlist
+	 * and replaces it with a single entry.
+	 */
+	set src(url: string);
 
-  // ─── Playlist ───
+	// ─── Playlist ───
 
-  /** The current playlist (immutable — replace to modify). */
-  get tracks(): readonly Track[];
+	/** The current playlist (immutable — replace to modify). */
+	get tracks(): readonly Track[];
 
-  /**
-   * Replace the playlist entirely.
-   * Resets currentIndex to 0 unless the current track's src
-   * is found in the new list.
-   * Emits 'playlistchange'.
-   */
-  set tracks(tracks: Track[]);
+	/**
+	 * Replace the playlist entirely.
+	 * Resets currentIndex to 0 unless the current track's src
+	 * is found in the new list.
+	 * Emits 'playlistchange'.
+	 */
+	set tracks(tracks: Track[]);
 
-  /** Index of the currently active track in the playlist. -1 if empty. */
-  get currentIndex(): number;
+	/** Index of the currently active track in the playlist. -1 if empty. */
+	get currentIndex(): number;
 
-  /** The currently active Track object, or null if empty. */
-  get currentTrack(): Track | null;
+	/** The currently active Track object, or null if empty. */
+	get currentTrack(): Track | null;
 
-  /**
-   * Advance to the next track in the playlist.
-   * Respects repeat mode and shuffle.
-   * If at end of playlist with repeat='off', does nothing.
-   * Emits 'trackchange' and begins playback.
-   */
-  next(): Promise<void>;
+	/**
+	 * Advance to the next track in the playlist.
+	 * Respects repeat mode and shuffle.
+	 * If at end of playlist with repeat='off', does nothing.
+	 * Emits 'trackchange' and begins playback.
+	 */
+	next(): Promise<void>;
 
-  /**
-   * Return to the previous track.
-   * If >3 seconds into current track, restarts current track instead.
-   * In shuffle mode, returns to the actual previous track (not random).
-   * Emits 'trackchange' and begins playback.
-   */
-  previous(): Promise<void>;
+	/**
+	 * Return to the previous track.
+	 * If >3 seconds into current track, restarts current track instead.
+	 * In shuffle mode, returns to the actual previous track (not random).
+	 * Emits 'trackchange' and begins playback.
+	 */
+	previous(): Promise<void>;
 
-  /**
-   * Jump to a specific track by index.
-   * Out-of-range indices are clamped.
-   * Emits 'trackchange' and begins playback.
-   */
-  goto(index: number): Promise<void>;
+	/**
+	 * Jump to a specific track by index.
+	 * Out-of-range indices are clamped.
+	 * Emits 'trackchange' and begins playback.
+	 */
+	goto(index: number): Promise<void>;
 
-  // ─── Repeat ───
+	// ─── Repeat ───
 
-  /** Current repeat mode. Default: 'off' */
-  get repeat(): RepeatMode;
-  set repeat(mode: RepeatMode);
+	/** Current repeat mode. Default: 'off' */
+	get repeat(): RepeatMode;
+	set repeat(mode: RepeatMode);
 
-  // ─── Shuffle ───
+	// ─── Shuffle ───
 
-  /** Current shuffle mode. Default: 'off' */
-  get shuffle(): ShuffleMode;
-  set shuffle(mode: ShuffleMode);
+	/** Current shuffle mode. Default: 'off' */
+	get shuffle(): ShuffleMode;
+	set shuffle(mode: ShuffleMode);
 
-  // ─── Preload ───
+	// ─── Preload ───
 
-  /** Preload strategy. Default: 'metadata' */
-  get preload(): PreloadStrategy;
-  set preload(strategy: PreloadStrategy);
+	/** Preload strategy. Default: 'metadata' */
+	get preload(): PreloadStrategy;
+	set preload(strategy: PreloadStrategy);
 
-  // ─── Media Session ───
+	// ─── Media Session ───
 
-  /** Whether Media Session API integration is active. Default: true */
-  get mediaSessionEnabled(): boolean;
-  set mediaSessionEnabled(v: boolean);
+	/** Whether Media Session API integration is active. Default: true */
+	get mediaSessionEnabled(): boolean;
+	set mediaSessionEnabled(v: boolean);
 
-  // ─── Events ───
+	// ─── Events ───
 
-  /** Subscribe to a player event. */
-  on(event: PlayerEvent, handler: EventListener): void;
+	/** Subscribe to a player event. */
+	on(event: PlayerEvent, handler: EventListener): void;
 
-  /**
-   * Subscribe to a player event, automatically removed
-   * after the first invocation.
-   */
-  once(event: PlayerEvent, handler: EventListener): void;
+	/**
+	 * Subscribe to a player event, automatically removed
+	 * after the first invocation.
+	 */
+	once(event: PlayerEvent, handler: EventListener): void;
 
-  /** Unsubscribe from a player event. */
-  off(event: PlayerEvent, handler: EventListener): void;
+	/** Unsubscribe from a player event. */
+	off(event: PlayerEvent, handler: EventListener): void;
 
-  // ─── Lifecycle ───
+	// ─── Lifecycle ───
 
-  /**
-   * Tear down the player: pause playback, remove all event
-   * listeners, clear Media Session, release the HTMLAudioElement.
-   * The player should not be used after destroy().
-   */
-  destroy(): void;
+	/**
+	 * Tear down the player: pause playback, remove all event
+	 * listeners, clear Media Session, release the HTMLAudioElement.
+	 * The player should not be used after destroy().
+	 */
+	destroy(): void;
 }
 ```
 
@@ -518,8 +518,8 @@ Safari on iOS has a documented bug (fixed in iOS 18) where large artwork images 
 
 ```ts
 artwork: [
-  { src: "icon-96.png", sizes: "96x96", type: "image/png" },
-  { src: "icon-512.png", sizes: "512x512", type: "image/png" },
+	{ src: "icon-96.png", sizes: "96x96", type: "image/png" },
+	{ src: "icon-512.png", sizes: "512x512", type: "image/png" },
 ];
 ```
 
@@ -608,18 +608,18 @@ packages/pwaudio/
 
 ```json
 {
-  "exports": {
-    ".": {
-      "import": {
-        "types": "./dist/index.d.ts",
-        "default": "./dist/index.js"
-      },
-      "require": {
-        "types": "./dist/index.d.cts",
-        "default": "./dist/index.cjs"
-      }
-    }
-  }
+	"exports": {
+		".": {
+			"import": {
+				"types": "./dist/index.d.ts",
+				"default": "./dist/index.js"
+			},
+			"require": {
+				"types": "./dist/index.d.cts",
+				"default": "./dist/index.cjs"
+			}
+		}
+	}
 }
 ```
 
@@ -628,15 +628,15 @@ The public API surface is:
 ```ts
 export { PWAudio } from "./PWAudio";
 export type {
-  Track,
-  PWAudioOptions,
-  PlayerEvent,
-  RepeatMode,
-  ShuffleMode,
-  PreloadStrategy,
-  TrackChangeDetail,
-  PlaylistChangeDetail,
-  MediaCardChangeDetail,
+	Track,
+	PWAudioOptions,
+	PlayerEvent,
+	RepeatMode,
+	ShuffleMode,
+	PreloadStrategy,
+	TrackChangeDetail,
+	PlaylistChangeDetail,
+	MediaCardChangeDetail,
 } from "./types";
 ```
 

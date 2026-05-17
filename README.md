@@ -42,31 +42,31 @@ Create a `manifest.webmanifest` and link it from your HTML (`<link rel="manifest
 
 ```json
 {
-  "name": "My Audio App",
-  "short_name": "MyAudio",
-  "description": "A Progressive Web Audio application",
-  "start_url": "/",
-  "display": "standalone",
-  "background_color": "#ffffff",
-  "theme_color": "#632CC7",
-  "icons": [
-    {
-      "src": "icons/icon-192.png",
-      "sizes": "192x192",
-      "type": "image/png"
-    },
-    {
-      "src": "icons/icon-512.png",
-      "sizes": "512x512",
-      "type": "image/png"
-    },
-    {
-      "src": "icons/icon-maskable-512.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "maskable"
-    }
-  ]
+	"name": "My Audio App",
+	"short_name": "MyAudio",
+	"description": "A Progressive Web Audio application",
+	"start_url": "/",
+	"display": "standalone",
+	"background_color": "#ffffff",
+	"theme_color": "#632CC7",
+	"icons": [
+		{
+			"src": "icons/icon-192.png",
+			"sizes": "192x192",
+			"type": "image/png"
+		},
+		{
+			"src": "icons/icon-512.png",
+			"sizes": "512x512",
+			"type": "image/png"
+		},
+		{
+			"src": "icons/icon-maskable-512.png",
+			"sizes": "512x512",
+			"type": "image/png",
+			"purpose": "maskable"
+		}
+	]
 }
 ```
 
@@ -79,7 +79,7 @@ All strategies below share the same app shell precaching and activation logic. R
 ```js
 // app.js — register the service worker
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("/sw.js");
+	navigator.serviceWorker.register("/sw.js");
 }
 ```
 
@@ -92,36 +92,32 @@ const SHELL_ASSETS = ["/", "/index.html", "/styles.css", "/app.js"];
 
 // Precache the app shell on install
 self.addEventListener("install", (event) => {
-  event.waitUntil(
-    caches.open(SHELL_CACHE).then((cache) => cache.addAll(SHELL_ASSETS)),
-  );
+	event.waitUntil(caches.open(SHELL_CACHE).then((cache) => cache.addAll(SHELL_ASSETS)));
 });
 
 // Clean up old shell caches on version change
 self.addEventListener("activate", (event) => {
-  event.waitUntil(
-    caches
-      .keys()
-      .then((keys) =>
-        Promise.all(
-          keys
-            .filter(
-              (key) => key.startsWith("app-shell-") && key !== SHELL_CACHE,
-            )
-            .map((key) => caches.delete(key)),
-        ),
-      ),
-  );
-  self.clients.claim();
+	event.waitUntil(
+		caches
+			.keys()
+			.then((keys) =>
+				Promise.all(
+					keys
+						.filter((key) => key.startsWith("app-shell-") && key !== SHELL_CACHE)
+						.map((key) => caches.delete(key)),
+				),
+			),
+	);
+	self.clients.claim();
 });
 
 // Helper: does this request belong to the app shell?
 function isShellRequest(request) {
-  const url = new URL(request.url);
-  return (
-    url.origin === self.location.origin &&
-    (request.mode === "navigate" || SHELL_ASSETS.includes(url.pathname))
-  );
+	const url = new URL(request.url);
+	return (
+		url.origin === self.location.origin &&
+		(request.mode === "navigate" || SHELL_ASSETS.includes(url.pathname))
+	);
 }
 ```
 
@@ -140,18 +136,14 @@ Your app plays one track at a time (notification sounds, alarm tones, ambient no
 ```js
 // sw.js — fetch handler for a single-track player
 self.addEventListener("fetch", (event) => {
-  // App shell: cache-first
-  if (isShellRequest(event.request)) {
-    event.respondWith(
-      caches
-        .match(event.request)
-        .then((cached) => cached || fetch(event.request)),
-    );
-    return;
-  }
+	// App shell: cache-first
+	if (isShellRequest(event.request)) {
+		event.respondWith(caches.match(event.request).then((cached) => cached || fetch(event.request)));
+		return;
+	}
 
-  // Audio and everything else: network only
-  // Let the browser's built-in media buffering handle playback
+	// Audio and everything else: network only
+	// Let the browser's built-in media buffering handle playback
 });
 ```
 
@@ -168,39 +160,35 @@ Your app has playlists of known tracks — users pick what to listen to and may 
 const AUDIO_CACHE = "audio-playlist-v1";
 
 self.addEventListener("fetch", (event) => {
-  if (isShellRequest(event.request)) {
-    event.respondWith(
-      caches
-        .match(event.request)
-        .then((cached) => cached || fetch(event.request)),
-    );
-    return;
-  }
+	if (isShellRequest(event.request)) {
+		event.respondWith(caches.match(event.request).then((cached) => cached || fetch(event.request)));
+		return;
+	}
 
-  if (isAudioRequest(event.request)) {
-    event.respondWith(staleWhileRevalidate(event.request, AUDIO_CACHE));
-    return;
-  }
+	if (isAudioRequest(event.request)) {
+		event.respondWith(staleWhileRevalidate(event.request, AUDIO_CACHE));
+		return;
+	}
 });
 
 async function staleWhileRevalidate(request, cacheName) {
-  const cache = await caches.open(cacheName);
-  const cached = await cache.match(request);
+	const cache = await caches.open(cacheName);
+	const cached = await cache.match(request);
 
-  // Update cache in the background regardless of whether we had a cache hit
-  const fetchPromise = fetch(request).then((response) => {
-    if (response.ok) {
-      cache.put(request, response.clone());
-      evictIfNeeded(cacheName, {
-        maxEntries: 15, // ~60–150 MB depending on bitrate; safe for most devices
-        maxAgeSeconds: 7 * 24 * 60 * 60, // 7 days — long enough for weekly replay
-      });
-    }
-    return response;
-  });
+	// Update cache in the background regardless of whether we had a cache hit
+	const fetchPromise = fetch(request).then((response) => {
+		if (response.ok) {
+			cache.put(request, response.clone());
+			evictIfNeeded(cacheName, {
+				maxEntries: 15, // ~60–150 MB depending on bitrate; safe for most devices
+				maxAgeSeconds: 7 * 24 * 60 * 60, // 7 days — long enough for weekly replay
+			});
+		}
+		return response;
+	});
 
-  // Return cached response immediately, or wait for network if not yet cached
-  return cached || fetchPromise;
+	// Return cached response immediately, or wait for network if not yet cached
+	return cached || fetchPromise;
 }
 ```
 
@@ -209,35 +197,29 @@ The two helper functions every runtime cache strategy needs:
 ```js
 // Enforce size and age limits on a cache
 async function evictIfNeeded(cacheName, { maxEntries, maxAgeSeconds }) {
-  const cache = await caches.open(cacheName);
-  const now = Date.now();
+	const cache = await caches.open(cacheName);
+	const now = Date.now();
 
-  // Remove expired entries
-  for (const request of await cache.keys()) {
-    const response = await cache.match(request);
-    const dateHeader = response.headers.get("date");
-    if (
-      dateHeader &&
-      now - new Date(dateHeader).getTime() > maxAgeSeconds * 1000
-    ) {
-      cache.delete(request);
-    }
-  }
+	// Remove expired entries
+	for (const request of await cache.keys()) {
+		const response = await cache.match(request);
+		const dateHeader = response.headers.get("date");
+		if (dateHeader && now - new Date(dateHeader).getTime() > maxAgeSeconds * 1000) {
+			cache.delete(request);
+		}
+	}
 
-  // Enforce max entries (cache.keys() returns insertion order — oldest first)
-  const keys = await cache.keys();
-  while (keys.length > maxEntries) {
-    cache.delete(keys.shift());
-  }
+	// Enforce max entries (cache.keys() returns insertion order — oldest first)
+	const keys = await cache.keys();
+	while (keys.length > maxEntries) {
+		cache.delete(keys.shift());
+	}
 }
 
 // Adapt this predicate to match your audio URLs
 function isAudioRequest(request) {
-  const url = new URL(request.url);
-  return (
-    url.origin === self.location.origin &&
-    /\.(mp3|m4a|ogg|wav|flac|aac)$/.test(url.pathname)
-  );
+	const url = new URL(request.url);
+	return url.origin === self.location.origin && /\.(mp3|m4a|ogg|wav|flac|aac)$/.test(url.pathname);
 }
 ```
 
@@ -250,17 +232,13 @@ Each session generates a new set of tracks. Users don't choose or replay specifi
 ```js
 // sw.js — fetch handler for a radio app
 self.addEventListener("fetch", (event) => {
-  if (isShellRequest(event.request)) {
-    event.respondWith(
-      caches
-        .match(event.request)
-        .then((cached) => cached || fetch(event.request)),
-    );
-    return;
-  }
+	if (isShellRequest(event.request)) {
+		event.respondWith(caches.match(event.request).then((cached) => cached || fetch(event.request)));
+		return;
+	}
 
-  // Audio and everything else: network only
-  // Let HTMLAudioElement manage its own buffering for the current track.
+	// Audio and everything else: network only
+	// Let HTMLAudioElement manage its own buffering for the current track.
 });
 ```
 
@@ -277,35 +255,31 @@ Long-form audio — episodes run 30 minutes to 10+ hours, and users progress thr
 const AUDIO_CACHE = "audio-longform-v1";
 
 self.addEventListener("fetch", (event) => {
-  if (isShellRequest(event.request)) {
-    event.respondWith(
-      caches
-        .match(event.request)
-        .then((cached) => cached || fetch(event.request)),
-    );
-    return;
-  }
+	if (isShellRequest(event.request)) {
+		event.respondWith(caches.match(event.request).then((cached) => cached || fetch(event.request)));
+		return;
+	}
 
-  if (isAudioRequest(event.request)) {
-    event.respondWith(cacheFirst(event.request, AUDIO_CACHE));
-    return;
-  }
+	if (isAudioRequest(event.request)) {
+		event.respondWith(cacheFirst(event.request, AUDIO_CACHE));
+		return;
+	}
 });
 
 async function cacheFirst(request, cacheName) {
-  const cache = await caches.open(cacheName);
-  const cached = await cache.match(request);
-  if (cached) return cached;
+	const cache = await caches.open(cacheName);
+	const cached = await cache.match(request);
+	if (cached) return cached;
 
-  const response = await fetch(request);
-  if (response.ok) {
-    cache.put(request, response.clone());
-    evictIfNeeded(cacheName, {
-      maxEntries: 5, // 5 episodes × ~100 MB = ~500 MB; pushing limits
-      maxAgeSeconds: 30 * 24 * 60 * 60, // 30 days — episodes are stable once published
-    });
-  }
-  return response;
+	const response = await fetch(request);
+	if (response.ok) {
+		cache.put(request, response.clone());
+		evictIfNeeded(cacheName, {
+			maxEntries: 5, // 5 episodes × ~100 MB = ~500 MB; pushing limits
+			maxAgeSeconds: 30 * 24 * 60 * 60, // 30 days — episodes are stable once published
+		});
+	}
+	return response;
 }
 ```
 
@@ -314,8 +288,8 @@ Time-based eviction is a rough proxy for long-form content. For a better UX, you
 ```js
 // app.js — remove a finished episode from the cache
 async function removeEpisode(audioUrl) {
-  const cache = await caches.open("audio-longform-v1");
-  await cache.delete(audioUrl);
+	const cache = await caches.open("audio-longform-v1");
+	await cache.delete(audioUrl);
 }
 ```
 
@@ -338,30 +312,24 @@ The trick is **routing**: different audio URLs need different strategies. Option
 const LIBRARY_CACHE = "audio-library-v1";
 
 self.addEventListener("fetch", (event) => {
-  if (isShellRequest(event.request)) {
-    event.respondWith(
-      caches
-        .match(event.request)
-        .then((cached) => cached || fetch(event.request)),
-    );
-    return;
-  }
+	if (isShellRequest(event.request)) {
+		event.respondWith(caches.match(event.request).then((cached) => cached || fetch(event.request)));
+		return;
+	}
 
-  // Library audio: stale-while-revalidate (reuse the function from Curated playlists)
-  if (isLibraryAudio(event.request)) {
-    event.respondWith(staleWhileRevalidate(event.request, LIBRARY_CACHE));
-    return;
-  }
+	// Library audio: stale-while-revalidate (reuse the function from Curated playlists)
+	if (isLibraryAudio(event.request)) {
+		event.respondWith(staleWhileRevalidate(event.request, LIBRARY_CACHE));
+		return;
+	}
 
-  // Radio audio: network only (no caching)
-  // Everything else: network only
+	// Radio audio: network only (no caching)
+	// Everything else: network only
 });
 
 function isLibraryAudio(request) {
-  const url = new URL(request.url);
-  return (
-    url.origin === self.location.origin && url.pathname.startsWith("/library/")
-  );
+	const url = new URL(request.url);
+	return url.origin === self.location.origin && url.pathname.startsWith("/library/");
 }
 ```
 
@@ -374,11 +342,11 @@ Audio caches can exceed browser eviction thresholds quickly — Chrome on Androi
 ```js
 // app.js — request persistent storage
 if (navigator.storage && navigator.storage.persist) {
-  navigator.storage.persist().then((persisted) => {
-    if (persisted) {
-      // Storage is safe — browser won't evict it under pressure
-    }
-  });
+	navigator.storage.persist().then((persisted) => {
+		if (persisted) {
+			// Storage is safe — browser won't evict it under pressure
+		}
+	});
 }
 ```
 

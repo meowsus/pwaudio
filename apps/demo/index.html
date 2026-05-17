@@ -1,51 +1,44 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>pwaudio demo</title>
-    <meta
-      name="description"
-      content="A headless audio player library for Progressive Web Applications"
-    />
-    <meta name="theme-color" content="#632CC7" />
-    <link rel="icon" type="image/svg+xml" href="/pwaudio/favicon.svg" />
-    <link rel="apple-touch-icon" href="/pwaudio/pwa-192x192.png" />
-    <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-    <meta name="apple-mobile-web-app-title" content="pwaudio" />
-  </head>
-  <body>
-    <div id="app">
-      <h1>pwaudio demo</h1>
-      <p>A headless audio player library for Progressive Web Applications</p>
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>pwaudio demo</title>
+		<meta
+			name="description"
+			content="A headless audio player library for Progressive Web Applications"
+		/>
+		<meta name="theme-color" content="#632CC7" />
+		<link rel="icon" type="image/svg+xml" href="/pwaudio/favicon.svg" />
+		<link rel="apple-touch-icon" href="/pwaudio/pwa-192x192.png" />
+		<meta name="apple-mobile-web-app-capable" content="yes" />
+		<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+		<meta name="apple-mobile-web-app-title" content="pwaudio" />
+	</head>
+	<body>
+		<div id="app">
+			<h1>pwaudio demo</h1>
+			<p>A headless audio player library for Progressive Web Applications</p>
 
-      <button id="play">▶ Play</button>
-      <button id="pause">⏸ Pause</button>
+			<button id="play">▶ Play</button>
+			<button id="pause">⏸ Pause</button>
 
-      <div>
-        <label>
-          Volume
-          <input
-            id="volume"
-            type="range"
-            min="0"
-            max="1"
-            step="0.01"
-            value="1"
-          />
-        </label>
-      </div>
+			<div>
+				<label>
+					Volume
+					<input id="volume" type="range" min="0" max="1" step="0.01" value="1" />
+				</label>
+			</div>
 
-      <div>
-        <label>
-          Seek
-          <input id="seek" type="range" min="0" max="100" step="1" value="0" />
-        </label>
-      </div>
+			<div>
+				<label>
+					Seek
+					<input id="seek" type="range" min="0" max="100" step="1" value="0" />
+				</label>
+			</div>
 
-      <p id="status">Idle</p>
-    </div>
-    <script type="module" src="/src/main.ts"></script>
-  </body>
+			<p id="status">Idle</p>
+		</div>
+		<script type="module" src="/src/main.ts"></script>
+	</body>
 </html>
