@@ -73,7 +73,7 @@ export class PWAudio {
 			stop: () => this.stop(),
 			seekto: (details) => {
 				if (details.fastSeek && "fastSeek" in this.#audio) {
-					(this.#audio as any).fastSeek(details.seekTime ?? 0);
+					(this.#audio as any).fastSeek(details.seekTime);
 				} else {
 					this.#audio.currentTime = details.seekTime ?? 0;
 				}
@@ -161,6 +161,13 @@ export class PWAudio {
 		this.#audio.pause();
 	}
 
+	/**
+	 * Stop playback: pause and seek to 0. Emits 'stop'.
+	 *
+	 * Event cascade: pause → seeking → seeked → stop.
+	 * Consumers should treat 'stop' as the definitive signal;
+	 * the native side effects (pause, seeking, seeked) are unavoidable.
+	 */
 	stop(): void {
 		if (this.#destroyed) {
 			throw new DOMException("PWAudio has been destroyed", "InvalidStateError");
@@ -219,6 +226,15 @@ export class PWAudio {
 
 	// ─── Volume ───
 
+	/**
+	 * Volume level, clamped to 0–1. Values outside this range are
+	 * clamped rather than thrown. Matches HTMLAudioElement behavior.
+	 * Default: 1
+	 *
+	 * Note: Programmatic volume control is disabled on many mobile
+	 * browsers (iOS Safari, Android Chrome). The setter will not throw,
+	 * but the value may be ignored by the OS.
+	 */
 	get volume(): number {
 		return this.#audio.volume;
 	}
@@ -243,6 +259,11 @@ export class PWAudio {
 
 	// ─── Playback Rate ───
 
+	/**
+	 * Playback rate multiplier, clamped to 0.25–4.0.
+	 * Values outside this range are silently clamped.
+	 * Default: 1
+	 */
 	get playbackRate(): number {
 		return this.#audio.playbackRate;
 	}
@@ -254,14 +275,28 @@ export class PWAudio {
 		this.#audio.playbackRate = clampPlaybackRate(rate);
 	}
 
+	/**
+	 * Whether pitch is preserved when playbackRate ≠ 1.
+	 * Default: true (maps to HTMLAudioElement.preservesPitch)
+	 *
+	 * Safari < 17 requires the -webkit- prefixed version.
+	 * Both properties are set for maximum compatibility.
+	 */
 	get preservesPitch(): boolean {
-		// Check standard property first, fall back to webkit prefix
 		if ("preservesPitch" in this.#audio) {
 			return (this.#audio as any).preservesPitch;
 		}
-		return (this.#audio as any).webkitPreservesPitch ?? true;
+		if ("webkitPreservesPitch" in this.#audio) {
+			return (this.#audio as any).webkitPreservesPitch;
+		}
+		return true; // default per spec
 	}
 
+	/**
+	 * Set whether pitch is preserved when playbackRate ≠ 1.
+	 * Sets both preservesPitch and webkitPreservesPitch for
+	 * maximum browser compatibility.
+	 */
 	set preservesPitch(v: boolean) {
 		if (this.#destroyed) {
 			throw new DOMException("PWAudio has been destroyed", "InvalidStateError");
@@ -284,6 +319,16 @@ export class PWAudio {
 		return this.#audio.src;
 	}
 
+	/**
+	 * Set audio source directly (single-track mode).
+	 * ⚠ Destructive: this clears the entire playlist and replaces it
+	 * with a single entry [{src: url}]. Any existing playlist state
+	 * (currentIndex, shuffle order, shuffle history) is lost.
+	 * Emits 'playlistchange' and 'trackchange'.
+	 *
+	 * If you need to change the playlist without losing it, use
+	 * player.tracks instead.
+	 */
 	set src(url: string) {
 		if (this.#destroyed) {
 			throw new DOMException("PWAudio has been destroyed", "InvalidStateError");
@@ -700,7 +745,7 @@ export class PWAudio {
 			stop: () => this.stop(),
 			seekto: (details) => {
 				if (details.fastSeek && "fastSeek" in this.#audio) {
-					(this.#audio as any).fastSeek(details.seekTime ?? 0);
+					(this.#audio as any).fastSeek(details.seekTime);
 				} else {
 					this.#audio.currentTime = details.seekTime ?? 0;
 				}

@@ -1,5 +1,6 @@
 import type { Track } from "./types";
 import { POSITION_STATE_THROTTLE_MS } from "./constants";
+import { isFiniteDuration } from "./utils";
 
 /**
  * Manages the Media Session API integration.
@@ -91,16 +92,15 @@ export class MediaSessionManager {
 		if (!this.#enabled || !this.isAvailable) return;
 
 		const duration = this.#audio.duration;
-		if (duration && Number.isFinite(duration) && duration > 0) {
+		if (isFiniteDuration(duration)) {
 			try {
 				navigator.mediaSession.setPositionState({
 					duration,
 					playbackRate: this.#audio.playbackRate,
-					position: this.#audio.currentTime,
+					position: Math.max(0, Math.min(this.#audio.currentTime, duration)),
 				});
 			} catch {
-				// Position state can fail if duration is negative or position
-				// is out of range — silently ignore per spec.
+				// Silently ignore invalid position state
 			}
 		}
 	}
