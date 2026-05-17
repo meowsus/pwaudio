@@ -1,4 +1,30 @@
 import { PWAudio } from "pwaudio";
+import { registerSW } from "virtual:pwa-register";
+
+// Register service worker for PWA
+const updateSW = registerSW({
+	onNeedRefresh() {
+		if (confirm("New content available. Reload to update?")) {
+			updateSW(true);
+		}
+	},
+	onOfflineReady() {
+		console.log("App ready to work offline");
+	},
+});
+
+// Request persistent storage to protect cached audio from eviction
+if (navigator.storage && navigator.storage.persist) {
+	navigator.storage.persist().then((granted) => {
+		if (granted) {
+			console.log("Persistent storage granted — cache protected from eviction");
+		} else {
+			console.log(
+				"Persistent storage denied — browser may evict cache under pressure",
+			);
+		}
+	});
+}
 
 const player = new PWAudio(
 	"https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3",
