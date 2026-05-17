@@ -10,6 +10,7 @@ import type {
 import { DEFAULTS } from "./constants";
 import { clampVolume, clampPlaybackRate } from "./utils";
 import { EventManager } from "./events";
+import { ShuffleManager } from "./shuffle";
 
 export class PWAudio {
 	// ─── Internal state ───
@@ -28,6 +29,7 @@ export class PWAudio {
 	#endedState: boolean = false;
 	#playGeneration: number = 0;
 	#previousRestartThreshold: number = DEFAULTS.previousRestartThreshold;
+	#shuffleManager = new ShuffleManager();
 
 	constructor(options?: PWAudioOptions) {
 		this.#audio = new Audio();
@@ -282,8 +284,10 @@ export class PWAudio {
 			this.#currentIndex = 0;
 		}
 
-		// Playlist replacement while shuffle is on regenerates shuffle order
-		// (handled in Plan 05)
+		// Regenerate shuffle order if shuffle is on
+		if (this.#shuffle === "on" && newTracks.length > 0) {
+			this.#shuffleManager.generate(newTracks.length, this.#currentIndex);
+		}
 
 		this.#events.emit("playlistchange", { tracks: this.#tracks });
 
@@ -334,7 +338,17 @@ export class PWAudio {
 		if (this.#destroyed) {
 			throw new DOMException("PWAudio has been destroyed", "InvalidStateError");
 		}
+		if (this.#shuffle === mode) return; // no change
+
 		this.#shuffle = mode;
+
+		if (mode === "on") {
+			// Generate shuffle order with current track at position 0
+			this.#shuffleManager.generate(this.#tracks.length, this.#currentIndex);
+		} else {
+			// Clear shuffle state — currentIndex stays on the current track
+			this.#shuffleManager.clear();
+		}
 	}
 
 	// ─── Previous restart threshold ───
@@ -383,26 +397,32 @@ export class PWAudio {
 		this.#endedState = true;
 
 		if (this.#repeat === "one") {
-			// Repeat the current track
 			this.#endedState = false;
 			this.#audio.currentTime = 0;
 			this.#audio.play();
 			return;
 		}
 
-		if (this.#repeat === "all" && this.#currentIndex === this.#tracks.length - 1) {
-			// Wrap to first track
+		// Single-track with repeat=all is equivalent to repeat=one
+		if (this.#repeat === "all" && this.#tracks.length === 1) {
+			this.#endedState = false;
+			this.#audio.currentTime = 0;
+			this.#audio.play();
+			return;
+		}
+
+		if (this.#repeat === "all") {
 			this.next();
 			return;
 		}
 
-		if (this.#currentIndex < this.#tracks.length - 1) {
-			// Advance to next track
+		// Not at the end — advance
+		if (this.#currentIndex < this.#tracks.length - 1 || this.#shuffle === "on") {
 			this.next();
 			return;
 		}
 
-		// repeat === 'off', at the end — do nothing, stay in endedState
+		// repeat=off, at the end — stay in endedState
 	};
 
 	#handleError = (): void => {
@@ -417,26 +437,35 @@ export class PWAudio {
 		}
 
 		if (this.#tracks.length === 0) {
-			return; // empty playlist — no-op
+			return;
 		}
 
 		const previousIndex = this.#currentIndex;
 		let nextIndex: number;
 
 		if (this.#shuffle === "on") {
-			// Shuffle logic added in Plan 05
-			nextIndex = this.#currentIndex + 1; // fallback, replaced in Plan 05
+			const shuffledNext = this.#shuffleManager.next(this.#repeat === "all");
+			if (shuffledNext === -1) {
+				if (this.#repeat === "all") {
+					// Regenerate shuffle order and start from the beginning
+					this.#shuffleManager.generate(this.#tracks.length, this.#currentIndex);
+					nextIndex = this.#shuffleManager.next(true);
+					if (nextIndex === -1) return; // shouldn't happen but guard
+				} else {
+					// At the end with repeat=off
+					return;
+				}
+			} else {
+				nextIndex = shuffledNext;
+			}
 		} else {
 			nextIndex = this.#currentIndex + 1;
-		}
-
-		// Wrap around or stop based on repeat mode
-		if (nextIndex >= this.#tracks.length) {
-			if (this.#repeat === "all") {
-				nextIndex = 0;
-			} else {
-				// repeat === 'off' or 'one' — at the end, do nothing
-				return;
+			if (nextIndex >= this.#tracks.length) {
+				if (this.#repeat === "all") {
+					nextIndex = 0;
+				} else {
+					return; // repeat=off, at the end
+				}
 			}
 		}
 
@@ -477,17 +506,23 @@ export class PWAudio {
 		let prevIndex: number;
 
 		if (this.#shuffle === "on") {
-			// Shuffle logic added in Plan 05
-			prevIndex = this.#currentIndex - 1; // fallback, replaced in Plan 05
+			const shuffledPrev = this.#shuffleManager.previous();
+			if (shuffledPrev === -1) {
+				// No history — restart current track
+				this.#audio.currentTime = 0;
+				this.#endedState = false;
+				if (!this.#audio.paused) return;
+				return this.play();
+			}
+			prevIndex = shuffledPrev;
 		} else {
 			prevIndex = this.#currentIndex - 1;
-		}
-
-		if (prevIndex < 0) {
-			if (this.#repeat === "all") {
-				prevIndex = this.#tracks.length - 1;
-			} else {
-				prevIndex = 0; // clamp to first track
+			if (prevIndex < 0) {
+				if (this.#repeat === "all") {
+					prevIndex = this.#tracks.length - 1;
+				} else {
+					prevIndex = 0; // clamp to first track
+				}
 			}
 		}
 
@@ -530,6 +565,10 @@ export class PWAudio {
 
 		this.#currentIndex = clampedIndex;
 		this.#endedState = false;
+
+		if (this.#shuffle === "on") {
+			this.#shuffleManager.pushToHistory(clampedIndex);
+		}
 
 		const track = this.#currentTrack();
 		if (!track) return;
