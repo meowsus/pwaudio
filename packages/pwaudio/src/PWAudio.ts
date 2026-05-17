@@ -11,6 +11,7 @@ import { DEFAULTS } from "./constants";
 import { clampVolume, clampPlaybackRate } from "./utils";
 import { EventManager } from "./events";
 import { ShuffleManager } from "./shuffle";
+import { MediaSessionManager } from "./media-session";
 
 export class PWAudio {
 	// ─── Internal state ───
@@ -30,6 +31,7 @@ export class PWAudio {
 	#playGeneration: number = 0;
 	#previousRestartThreshold: number = DEFAULTS.previousRestartThreshold;
 	#shuffleManager = new ShuffleManager();
+	#mediaSession: MediaSessionManager;
 
 	constructor(options?: PWAudioOptions) {
 		this.#audio = new Audio();
@@ -60,6 +62,42 @@ export class PWAudio {
 		this.#audio.addEventListener("ended", this.#handleEnded);
 		this.#audio.addEventListener("error", this.#handleError);
 
+		// Initialize Media Session manager
+		this.#mediaSession = new MediaSessionManager(this.#audio);
+		this.#mediaSession.enabled = this.#mediaSessionEnabled;
+
+		// Set up Media Session action handlers
+		this.#mediaSession.setActionHandlers({
+			play: () => this.play(),
+			pause: () => this.pause(),
+			stop: () => this.stop(),
+			seekto: (details) => {
+				if (details.fastSeek && "fastSeek" in this.#audio) {
+					(this.#audio as any).fastSeek(details.seekTime ?? 0);
+				} else {
+					this.#audio.currentTime = details.seekTime ?? 0;
+				}
+			},
+			seekbackward: (details) => {
+				this.#audio.currentTime -= details.seekOffset ?? 10;
+			},
+			seekforward: (details) => {
+				this.#audio.currentTime += details.seekOffset ?? 10;
+			},
+			nexttrack: () => this.next(),
+			previoustrack: () => this.previous(),
+		});
+
+		// Update Media Session playbackState on play/pause native events
+		this.#audio.addEventListener("play", this.#handlePlayState);
+		this.#audio.addEventListener("pause", this.#handlePauseState);
+
+		// Throttled position state update on timeupdate
+		this.#audio.addEventListener("timeupdate", this.#handleTimeUpdate);
+
+		// Full position state update on ratechange
+		this.#audio.addEventListener("ratechange", this.#handleRateChange);
+
 		// Handle initial tracks/src
 		if (options?.tracks && options.tracks.length > 0) {
 			this.#tracks = [...options.tracks];
@@ -69,6 +107,11 @@ export class PWAudio {
 			this.#tracks = [{ src: options.src }];
 			this.#currentIndex = 0;
 			this.#audio.src = options.src;
+		}
+
+		// Initial Media Session update if we have a track
+		if (this.#currentTrack()) {
+			this.#updateMediaSession();
 		}
 	}
 
@@ -381,10 +424,10 @@ export class PWAudio {
 		this.#previousRestartThreshold = seconds;
 	}
 
-	// ─── Media Session (getter/setter only — logic in Plan 07) ───
+	// ─── Media Session ──
 
 	get mediaSessionEnabled(): boolean {
-		return this.#mediaSessionEnabled;
+		return this.#mediaSession.enabled;
 	}
 
 	set mediaSessionEnabled(v: boolean) {
@@ -392,6 +435,12 @@ export class PWAudio {
 			throw new DOMException("PWAudio has been destroyed", "InvalidStateError");
 		}
 		this.#mediaSessionEnabled = v;
+		this.#mediaSession.enabled = v;
+		if (v) {
+			this.#updateMediaSession();
+		} else {
+			this.#mediaSession.clear();
+		}
 	}
 
 	// ─── Events ───
@@ -620,8 +669,79 @@ export class PWAudio {
 		this.#endedState = false;
 		this.#audio.src = track.src;
 		this.#audio.preload = this.#preloadStrategy;
-		// Media Session update is added in Plan 07
+		this.#updateMediaSession();
 	}
+
+	/**
+	 * Update Media Session metadata, action handlers, and position state.
+	 * Called on trackchange and when mediaSession is re-enabled.
+	 */
+	#updateMediaSession(): void {
+		const track = this.#currentTrack();
+		if (!track) return;
+
+		this.#mediaSession.updateMetadata(track, () => (this.#audio.paused ? "paused" : "playing"));
+
+		this.#mediaSession.setActionHandlers({
+			play: () => this.play(),
+			pause: () => this.pause(),
+			stop: () => this.stop(),
+			seekto: (details) => {
+				if (details.fastSeek && "fastSeek" in this.#audio) {
+					(this.#audio as any).fastSeek(details.seekTime ?? 0);
+				} else {
+					this.#audio.currentTime = details.seekTime ?? 0;
+				}
+			},
+			seekbackward: (details) => {
+				this.#audio.currentTime -= details.seekOffset ?? 10;
+			},
+			seekforward: (details) => {
+				this.#audio.currentTime += details.seekOffset ?? 10;
+			},
+			nexttrack: () => this.next(),
+			previoustrack: () => this.previous(),
+		});
+
+		// Full position state update on track change
+		this.#mediaSession.setPositionState();
+
+		// Emit mediacardchange event
+		this.#events.emit("mediacardchange", {
+			title: track.title ?? "",
+			artist: track.artist ?? "",
+			album: track.album ?? "",
+			artwork: track.artwork ?? [],
+		});
+	}
+
+	/** Handles native play event — updates Media Session playbackState. */
+	#handlePlayState = (): void => {
+		if (!this.#destroyed && this.#mediaSession.enabled) {
+			this.#mediaSession.setPlaybackState("playing");
+		}
+	};
+
+	/** Handles native pause event — updates Media Session playbackState. */
+	#handlePauseState = (): void => {
+		if (!this.#destroyed && this.#mediaSession.enabled) {
+			this.#mediaSession.setPlaybackState("paused");
+		}
+	};
+
+	/** Handles timeupdate — throttled position state update. */
+	#handleTimeUpdate = (): void => {
+		if (!this.#destroyed) {
+			this.#mediaSession.throttleSetPositionState();
+		}
+	};
+
+	/** Handles ratechange — full position state update. */
+	#handleRateChange = (): void => {
+		if (!this.#destroyed) {
+			this.#mediaSession.setPositionState();
+		}
+	};
 
 	// ─── Placeholder for Plan 10 ───
 
