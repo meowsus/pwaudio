@@ -502,9 +502,21 @@ export class PWAudio {
 	};
 
 	#handleError = (): void => {
-		// Generation guard will be properly implemented in Plan 08
-		// For now, this is a placeholder that fires trackerror unconditionally
-		void this.#playGeneration; // referenced for future guard logic
+		// Capture the current track at the time of error, before any generation checks.
+		// Even if #loadTrack() has already been called for a new track
+		// (incrementing the generation), the error event fires for the
+		// previous src, so we capture the track info that was active.
+		const errorTrack = this.#currentTrack();
+		const errorIndex = this.#currentIndex;
+
+		// Emit trackerror synthetic event — always fire, even if generation
+		// has changed. The consumer needs to know that a track failed to load,
+		// even if they've already navigated away.
+		this.#events.emit("trackerror", {
+			error: this.#audio.error,
+			track: errorTrack,
+			index: errorIndex,
+		});
 	};
 
 	// ─── Playlist navigation ───
