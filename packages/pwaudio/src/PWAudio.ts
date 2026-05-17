@@ -74,7 +74,7 @@ export class PWAudio {
 
 	// ─── Playback ───
 
-	play(): Promise<void> {
+	async play(): Promise<void> {
 		if (this.#destroyed) {
 			throw new DOMException("PWAudio has been destroyed", "InvalidStateError");
 		}
@@ -91,7 +91,24 @@ export class PWAudio {
 		this.#endedState = false;
 		this.#stopped = false;
 
-		return this.#audio.play();
+		// Capture generation before awaiting — guards against stale play() calls
+		// that are superseded by next(), previous(), goto(), or stop()
+		const generation = this.#playGeneration;
+
+		try {
+			await this.#audio.play();
+		} catch (error) {
+			// If another track was loaded while we were waiting, discard the error
+			if (this.#playGeneration !== generation) {
+				return; // stale generation — silently discard
+			}
+			throw error;
+		}
+
+		// If another track was loaded while we were playing, discard the success
+		if (this.#playGeneration !== generation) {
+			return; // stale generation — silently discard
+		}
 	}
 
 	pause(): void {
@@ -394,7 +411,13 @@ export class PWAudio {
 	// ─── Internal handlers (stubs — filled in later plans) ───
 
 	#handleEnded = (): void => {
+		// Stale ended event — no tracks loaded
+		if (this.#tracks.length === 0) return;
+
 		this.#endedState = true;
+
+		// Capture generation to detect if another operation supersedes us
+		const generation = this.#playGeneration;
 
 		if (this.#repeat === "one") {
 			this.#endedState = false;
@@ -412,13 +435,17 @@ export class PWAudio {
 		}
 
 		if (this.#repeat === "all") {
-			this.next();
+			// If a new track was loaded since the ended event fired, don't advance
+			if (this.#playGeneration !== generation) return;
+			void this.next();
 			return;
 		}
 
 		// Not at the end — advance
 		if (this.#currentIndex < this.#tracks.length - 1 || this.#shuffle === "on") {
-			this.next();
+			// If a new track was loaded since the ended event fired, don't advance
+			if (this.#playGeneration !== generation) return;
+			void this.next();
 			return;
 		}
 
@@ -426,7 +453,9 @@ export class PWAudio {
 	};
 
 	#handleError = (): void => {
-		// Filled in Plan 08 (error handling)
+		// Generation guard will be properly implemented in Plan 08
+		// For now, this is a placeholder that fires trackerror unconditionally
+		void this.#playGeneration; // referenced for future guard logic
 	};
 
 	// ─── Playlist navigation ───
