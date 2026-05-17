@@ -43,6 +43,26 @@ describe("PWAudio", () => {
 			expect(player.playbackRate).toBe(1.5);
 		});
 
+		it("applies repeat option", () => {
+			const player = new PWAudio({ repeat: "all" });
+			expect(player.repeat).toBe("all");
+		});
+
+		it("applies shuffle option", () => {
+			const player = new PWAudio({ shuffle: "on" });
+			expect(player.shuffle).toBe("on");
+		});
+
+		it("applies previousRestartThreshold option", () => {
+			const player = new PWAudio({ previousRestartThreshold: 5 });
+			expect(player.previousRestartThreshold).toBe(5);
+		});
+
+		it("applies preload option", () => {
+			const player = new PWAudio({ preload: "auto" });
+			expect(player.preload).toBe("auto");
+		});
+
 		it("applies default values", () => {
 			const player = new PWAudio();
 			expect(player.volume).toBe(1);
@@ -427,20 +447,20 @@ describe("PWAudio", () => {
 		});
 	});
 
-	// ─── Placeholder methods ───
+	// ─── Navigation methods (basic coverage, detailed tests in playlist.test.ts) ───
 
-	describe("next/previous/goto (stubs)", () => {
-		it("next resolves immediately", async () => {
+	describe("next/previous/goto (empty playlist no-op)", () => {
+		it("next resolves immediately on empty playlist", async () => {
 			const player = new PWAudio();
 			await expect(player.next()).resolves.toBeUndefined();
 		});
 
-		it("previous resolves immediately", async () => {
+		it("previous resolves immediately on empty playlist", async () => {
 			const player = new PWAudio();
 			await expect(player.previous()).resolves.toBeUndefined();
 		});
 
-		it("goto resolves immediately", async () => {
+		it("goto resolves immediately on empty playlist", async () => {
 			const player = new PWAudio();
 			await expect(player.goto(0)).resolves.toBeUndefined();
 		});

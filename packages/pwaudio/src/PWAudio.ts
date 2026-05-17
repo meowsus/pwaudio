@@ -39,6 +39,14 @@ export class PWAudio {
 		this.#audio.volume = clampVolume(options?.volume ?? DEFAULTS.volume);
 		this.#audio.playbackRate = clampPlaybackRate(options?.playbackRate ?? DEFAULTS.playbackRate);
 
+		// Apply constructor-only options
+		this.#preloadStrategy = options?.preload ?? DEFAULTS.preload;
+		this.#repeat = options?.repeat ?? DEFAULTS.repeat;
+		this.#shuffle = options?.shuffle ?? DEFAULTS.shuffle;
+		this.#mediaSessionEnabled = options?.mediaSessionEnabled ?? DEFAULTS.mediaSessionEnabled;
+		this.#previousRestartThreshold =
+			options?.previousRestartThreshold ?? DEFAULTS.previousRestartThreshold;
+
 		// Set preservesPitch (with webkit prefix) — see Plan 09
 		this.#applyPreservesPitch(true);
 
@@ -73,7 +81,11 @@ export class PWAudio {
 			return Promise.reject(new Error("No track loaded"));
 		}
 
-		// Clear ended state on explicit play
+		// If ended, restart from beginning
+		if (this.#endedState) {
+			this.#audio.currentTime = 0;
+		}
+
 		this.#endedState = false;
 		this.#stopped = false;
 
@@ -368,32 +380,179 @@ export class PWAudio {
 	// ─── Internal handlers (stubs — filled in later plans) ───
 
 	#handleEnded = (): void => {
-		// Filled in Plan 05 (repeat modes) and Plan 06 (concurrency guard)
 		this.#endedState = true;
+
+		if (this.#repeat === "one") {
+			// Repeat the current track
+			this.#endedState = false;
+			this.#audio.currentTime = 0;
+			this.#audio.play();
+			return;
+		}
+
+		if (this.#repeat === "all" && this.#currentIndex === this.#tracks.length - 1) {
+			// Wrap to first track
+			this.next();
+			return;
+		}
+
+		if (this.#currentIndex < this.#tracks.length - 1) {
+			// Advance to next track
+			this.next();
+			return;
+		}
+
+		// repeat === 'off', at the end — do nothing, stay in endedState
 	};
 
 	#handleError = (): void => {
 		// Filled in Plan 08 (error handling)
 	};
 
-	// ─── Placeholder methods filled in Plan 04 ───
+	// ─── Playlist navigation ───
 
-	next(): Promise<void> {
-		return Promise.resolve();
+	async next(): Promise<void> {
+		if (this.#destroyed) {
+			throw new DOMException("PWAudio has been destroyed", "InvalidStateError");
+		}
+
+		if (this.#tracks.length === 0) {
+			return; // empty playlist — no-op
+		}
+
+		const previousIndex = this.#currentIndex;
+		let nextIndex: number;
+
+		if (this.#shuffle === "on") {
+			// Shuffle logic added in Plan 05
+			nextIndex = this.#currentIndex + 1; // fallback, replaced in Plan 05
+		} else {
+			nextIndex = this.#currentIndex + 1;
+		}
+
+		// Wrap around or stop based on repeat mode
+		if (nextIndex >= this.#tracks.length) {
+			if (this.#repeat === "all") {
+				nextIndex = 0;
+			} else {
+				// repeat === 'off' or 'one' — at the end, do nothing
+				return;
+			}
+		}
+
+		this.#currentIndex = nextIndex;
+		this.#endedState = false;
+
+		const track = this.#currentTrack();
+		if (!track) return;
+
+		this.#loadTrack(track);
+		this.#events.emit("trackchange", {
+			previousIndex,
+			currentIndex: this.#currentIndex,
+			track,
+		});
+
+		return this.play();
 	}
 
-	previous(): Promise<void> {
-		return Promise.resolve();
+	async previous(): Promise<void> {
+		if (this.#destroyed) {
+			throw new DOMException("PWAudio has been destroyed", "InvalidStateError");
+		}
+
+		if (this.#tracks.length === 0) {
+			return; // empty playlist — no-op
+		}
+
+		// If beyond threshold, restart current track
+		if (this.#audio.currentTime > this.#previousRestartThreshold) {
+			this.#audio.currentTime = 0;
+			this.#endedState = false;
+			if (!this.#audio.paused) return; // already playing, just seeked
+			return this.play();
+		}
+
+		const previousIndex = this.#currentIndex;
+		let prevIndex: number;
+
+		if (this.#shuffle === "on") {
+			// Shuffle logic added in Plan 05
+			prevIndex = this.#currentIndex - 1; // fallback, replaced in Plan 05
+		} else {
+			prevIndex = this.#currentIndex - 1;
+		}
+
+		if (prevIndex < 0) {
+			if (this.#repeat === "all") {
+				prevIndex = this.#tracks.length - 1;
+			} else {
+				prevIndex = 0; // clamp to first track
+			}
+		}
+
+		this.#currentIndex = prevIndex;
+		this.#endedState = false;
+
+		const track = this.#currentTrack();
+		if (!track) return;
+
+		this.#loadTrack(track);
+		this.#events.emit("trackchange", {
+			previousIndex,
+			currentIndex: this.#currentIndex,
+			track,
+		});
+
+		return this.play();
 	}
 
-	goto(_index: number): Promise<void> {
-		return Promise.resolve();
+	async goto(index: number): Promise<void> {
+		if (this.#destroyed) {
+			throw new DOMException("PWAudio has been destroyed", "InvalidStateError");
+		}
+
+		if (this.#tracks.length === 0) {
+			return; // empty playlist — no-op
+		}
+
+		// Clamp index
+		const clampedIndex = Math.max(0, Math.min(index, this.#tracks.length - 1));
+		const previousIndex = this.#currentIndex;
+
+		if (clampedIndex === previousIndex) {
+			// Same track — just restart
+			this.#audio.currentTime = 0;
+			this.#endedState = false;
+			if (!this.#audio.paused) return;
+			return this.play();
+		}
+
+		this.#currentIndex = clampedIndex;
+		this.#endedState = false;
+
+		const track = this.#currentTrack();
+		if (!track) return;
+
+		this.#loadTrack(track);
+		this.#events.emit("trackchange", {
+			previousIndex,
+			currentIndex: this.#currentIndex,
+			track,
+		});
+
+		return this.play();
 	}
 
-	// ─── Placeholder for Plan 07 ───
+	// ─── Internal ───
 
-	#loadTrack(_track: Track): void {
-		// Filled in Plan 04
+	#loadTrack(track: Track): void {
+		this.#playGeneration++;
+		this.#stopped = false;
+		this.#endedState = false;
+		this.#audio.src = track.src;
+		this.#audio.preload = this.#preloadStrategy;
+		// Media Session update is added in Plan 07
 	}
 
 	// ─── Placeholder for Plan 10 ───
