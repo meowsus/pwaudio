@@ -55,6 +55,43 @@ export default defineConfig({
 						purpose: "maskable",
 					},
 				],
+				shortcuts: [
+					{
+						name: "Single-Track Player",
+						short_name: "Single-Track",
+						url: "/pwaudio/single-track/",
+						description: "Play a single audio file with basic controls",
+						icons: [{ src: "pwa-96x96.png", sizes: "96x96" }],
+					},
+					{
+						name: "Curated Playlist",
+						short_name: "Playlist",
+						url: "/pwaudio/playlist/",
+						description: "Navigate a track list with next/previous, shuffle, and repeat",
+						icons: [{ src: "pwa-96x96.png", sizes: "96x96" }],
+					},
+					{
+						name: "Radio / Random Session",
+						short_name: "Radio",
+						url: "/pwaudio/radio/",
+						description: "Random track sessions with auto-advance",
+						icons: [{ src: "pwa-96x96.png", sizes: "96x96" }],
+					},
+					{
+						name: "Podcast / Audiobook",
+						short_name: "Podcast",
+						url: "/pwaudio/podcast/",
+						description: "Long-form playback with variable speed and progress tracking",
+						icons: [{ src: "pwa-96x96.png", sizes: "96x96" }],
+					},
+					{
+						name: "Hybrid (Library + Radio)",
+						short_name: "Hybrid",
+						url: "/pwaudio/hybrid/",
+						description: "Switch between cached library and streaming radio",
+						icons: [{ src: "pwa-96x96.png", sizes: "96x96" }],
+					},
+				],
 			},
 			workbox: {
 				globPatterns: ["**/*.{js,css,html,ico,png,svg,woff2}"],
