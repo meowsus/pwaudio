@@ -28,6 +28,7 @@ export class PWAudio {
 	#destroyed: boolean = false;
 	#stopped: boolean = true;
 	#endedState: boolean = false;
+	#userPaused: boolean = false;
 	#playGeneration: number = 0;
 	#previousRestartThreshold: number = DEFAULTS.previousRestartThreshold;
 	#shuffleManager = new ShuffleManager();
@@ -143,6 +144,7 @@ export class PWAudio {
 
 		this.#endedState = false;
 		this.#stopped = false;
+		this.#userPaused = false;
 
 		try {
 			await this.#audio.play();
@@ -166,6 +168,7 @@ export class PWAudio {
 
 	pause(): void {
 		this.#throwIfDestroyed();
+		this.#userPaused = true;
 		this.#audio.pause();
 	}
 
@@ -183,6 +186,7 @@ export class PWAudio {
 		this.#audio.currentTime = 0;
 		this.#stopped = true;
 		this.#endedState = false;
+		this.#userPaused = false;
 		this.#events.emit("stop");
 	}
 
@@ -561,6 +565,7 @@ export class PWAudio {
 		if (this.#repeat === "one") {
 			this.#endedState = false;
 			this.#audio.currentTime = 0;
+			this.#mediaSessionKeepAlive();
 			void this.play().catch(() => {}); // guarded by playGeneration
 			return;
 		}
@@ -569,6 +574,7 @@ export class PWAudio {
 		if (this.#repeat === "all" && this.#tracks.length === 1) {
 			this.#endedState = false;
 			this.#audio.currentTime = 0;
+			this.#mediaSessionKeepAlive();
 			void this.play().catch(() => {}); // guarded by playGeneration
 			return;
 		}
@@ -576,6 +582,7 @@ export class PWAudio {
 		if (this.#repeat === "all") {
 			// If a new track was loaded since the ended event fired, don't advance
 			if (this.#playGeneration !== generation) return;
+			this.#mediaSessionKeepAlive();
 			void this.next().catch(() => {});
 			return;
 		}
@@ -584,11 +591,23 @@ export class PWAudio {
 		if (this.#currentIndex < this.#tracks.length - 1 || this.#shuffle === "on") {
 			// If a new track was loaded since the ended event fired, don't advance
 			if (this.#playGeneration !== generation) return;
+			this.#mediaSessionKeepAlive();
 			void this.next().catch(() => {});
 			return;
 		}
 
 		// repeat=off, at the end — stay in endedState
+	};
+
+	/**
+	 * Keep mediaSession.playbackState = "playing" during track transitions so
+	 * mobile browsers (Chrome Android) continue treating this tab as an active
+	 * media player, preventing throttling and MEDIA_ERR_ABORTED errors.
+	 */
+	#mediaSessionKeepAlive = (): void => {
+		if (this.#mediaSession.enabled && !this.#destroyed) {
+			this.#mediaSession.setPlaybackState("playing");
+		}
 	};
 
 	#handleError = (): void => {
@@ -818,9 +837,24 @@ export class PWAudio {
 		}
 	};
 
-	/** Handles native pause event — updates Media Session playbackState. */
+	/** Handles native pause event — updates Media Session playbackState.
+	 *
+	 *  When a track naturally ends, the browser fires a `pause` event after `ended`.
+	 *  If we blindly set playbackState = "paused" here, mobile Chrome sees the tab
+	 *  as idle and may throttle it (aborting fetches, suspending JS). By keeping
+	 *  playbackState = "playing" during track transitions (!#userPaused),
+	 *  we tell the browser this tab is still an active media player, which prevents
+	 *  throttling and keeps the lock-screen notification alive.
+	 */
 	#handlePauseState = (): void => {
-		if (!this.#destroyed && this.#mediaSession.enabled) {
+		if (this.#destroyed || !this.#mediaSession.enabled) return;
+
+		// During a track transition (user didn't pause — #userPaused is false),
+		// the audio element pauses between tracks. Keep playbackState = "playing"
+		// so the browser keeps the tab alive as an active media player.
+		if (!this.#stopped && !this.#userPaused) {
+			this.#mediaSession.setPlaybackState("playing");
+		} else {
 			this.#mediaSession.setPlaybackState("paused");
 		}
 	};

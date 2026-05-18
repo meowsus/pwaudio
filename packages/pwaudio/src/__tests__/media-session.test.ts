@@ -3,6 +3,32 @@ import { PWAudio } from "../PWAudio";
 import type { MediaCardChangeDetail } from "../types";
 import { MediaSessionManager } from "../media-session";
 
+// ─── Audio capture for native event simulation ───
+
+let capturedAudio: HTMLAudioElement | undefined;
+const OriginalAudio = globalThis.Audio;
+
+function installAudioCapture(): void {
+	capturedAudio = undefined;
+	globalThis.Audio = class extends OriginalAudio {
+		constructor() {
+			super();
+			capturedAudio = this;
+		}
+	} as typeof OriginalAudio;
+}
+
+function restoreAudio(): void {
+	globalThis.Audio = OriginalAudio;
+}
+
+function getCapturedAudio(): HTMLAudioElement {
+	if (!capturedAudio) {
+		throw new Error("No Audio element was captured.");
+	}
+	return capturedAudio;
+}
+
 // ─── Media Session API Mock ───
 
 interface MediaSessionMock {
@@ -676,6 +702,120 @@ describe("PWAudio Media Session Integration", () => {
 			});
 
 			expect(mock.metadata).toBeNull();
+		});
+	});
+
+	describe("Playback state keep-alive during track transitions", () => {
+		beforeEach(() => {
+			installAudioCapture();
+		});
+
+		afterEach(() => {
+			restoreAudio();
+		});
+
+		it("keeps playbackState 'playing' when pause fires during ended transition (repeat=all)", () => {
+			// When a track ends with repeat=all, the player auto-advances to the next
+			// track. The browser fires a pause event between tracks. Because the user
+			// didn't initiate the pause (#userPaused is false), the keep-alive logic
+			// keeps playbackState = "playing" so the browser doesn't throttle the tab.
+			const player = new PWAudio({
+				tracks: [
+					{ src: "track1.mp3", title: "Track 1" },
+					{ src: "track2.mp3", title: "Track 2" },
+				],
+				repeat: "all",
+			});
+			const mock = getMockMs();
+			const audio = getCapturedAudio();
+
+			// Transition out of initial stopped state
+			void player.goto(1);
+			expect(player.stopped).toBe(false);
+
+			// Simulate reaching end of track — handleEnded calls next()
+			// which resets endedState, but #userPaused stays false.
+			audio.dispatchEvent(new Event("ended"));
+
+			// Browser fires pause after ended — keep-alive keeps playbackState "playing"
+			// because #userPaused is false (user didn't pause, it's a transition).
+			audio.dispatchEvent(new Event("pause"));
+			expect(mock.playbackState).toBe("playing");
+		});
+
+		it("sets playbackState 'playing' immediately in handleEnded via keepAlive", () => {
+			// #mediaSessionKeepAlive sets playbackState = "playing" right inside
+			// handleEnded, so even if pause fires before ended, the state stays.
+			const player = new PWAudio({
+				tracks: [
+					{ src: "track1.mp3", title: "Track 1" },
+					{ src: "track2.mp3", title: "Track 2" },
+				],
+				repeat: "all",
+			});
+			const mock = getMockMs();
+			const audio = getCapturedAudio();
+
+			void player.goto(1);
+			audio.dispatchEvent(new Event("ended"));
+			// #mediaSessionKeepAlive should have been called for repeat=all
+			expect(mock.playbackState).toBe("playing");
+		});
+
+		it("sets playbackState 'paused' for user-initiated pause (not a transition)", async () => {
+			// When a user pauses (endedState=false, not a transition),
+			// playbackState should be set to "paused".
+			const player = createPlayerWithTracks();
+			const mock = getMockMs();
+
+			// Transition out of initial stopped state, then pause
+			void player.goto(1);
+			await player.pause();
+			expect(mock.playbackState).toBe("paused");
+		});
+
+		it("keeps playbackState 'playing' when playlist ends (repeat=off)", () => {
+			// When the playlist ends (repeat=off), the user didn't pause (#userPaused=false)
+			// and the player is not stopped (#stopped=false). The pause handler keeps
+			// playbackState = "playing" because the pause was not user-initiated.
+			// This keeps the notification visible so the user can resume.
+			const player = new PWAudio({
+				tracks: [{ src: "track1.mp3", title: "Track 1" }],
+				repeat: "off",
+			});
+			const mock = getMockMs();
+			const audio = getCapturedAudio();
+
+			void player.goto(1);
+			audio.dispatchEvent(new Event("ended"));
+			expect(player.endedState).toBe(true);
+
+			audio.dispatchEvent(new Event("pause"));
+			// userPaused=false, stopped=false — pause handler keeps "playing"
+			expect(mock.playbackState).toBe("playing");
+		});
+
+		it("sets playbackState 'paused' when stop() is called", () => {
+			const player = createPlayerWithTracks();
+			const mock = getMockMs();
+
+			player.stop();
+			// stop() sets stopped=true, so pause handler sets playbackState = "paused"
+			expect(mock.playbackState).toBe("paused");
+		});
+
+		it("does not throw when mediaSession is disabled during ended", () => {
+			const player = new PWAudio({
+				tracks: [{ src: "track1.mp3", title: "Track 1" }],
+				repeat: "off",
+				mediaSessionEnabled: false,
+			});
+			const audio = getCapturedAudio();
+
+			void player.goto(1);
+			audio.dispatchEvent(new Event("ended"));
+			// Should not throw — mediaSessionKeepAlive is a no-op when disabled
+			expect(player.endedState).toBe(true);
 		});
 	});
 });

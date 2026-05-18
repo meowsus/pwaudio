@@ -490,4 +490,79 @@ describe("Error Handling", () => {
 			expect(handler).toHaveBeenCalledOnce(); // Still only 1
 		});
 	});
+
+	describe("MEDIA_ERR_ABORTED (mobile screen-off, track change)", () => {
+		it("trackerror is emitted for MEDIA_ERR_ABORTED with code 1", () => {
+			// The library emits trackerror for ALL error codes, including ABORTED.
+			// Consumers should filter MEDIA_ERR_ABORTED (code 1) at the application
+			// level — it is not a genuine playback failure, just the user-agent
+			// aborting the fetch (e.g. mobile Chrome when the screen turns off,
+			// or the player changing tracks).
+			const player = new PWAudio({ tracks: [{ src: "track.mp3" }] });
+			const audioEl = getCapturedAudio();
+
+			const trackerrorHandler = vi.fn();
+			player.on("trackerror", trackerrorHandler);
+
+			const abortedError = createMediaError(MEDIA_ERR_ABORTED, "Aborted");
+			setAudioError(audioEl, abortedError);
+			audioEl.dispatchEvent(new Event("error"));
+
+			expect(trackerrorHandler).toHaveBeenCalledOnce();
+			const event = trackerrorHandler.mock.calls[0][0] as CustomEvent<TrackErrorDetail>;
+			expect(event.detail.error?.code).toBe(MEDIA_ERR_ABORTED);
+		});
+
+		it("consumer can filter MEDIA_ERR_ABORTED by checking error.code", () => {
+			// Demonstrates the recommended pattern for ignoring spurious aborts
+			const player = new PWAudio({ tracks: [{ src: "track.mp3" }] });
+			const audioEl = getCapturedAudio();
+
+			const genuineErrors: CustomEvent<TrackErrorDetail>[] = [];
+			player.on("trackerror", (e: CustomEvent<TrackErrorDetail>) => {
+				if (e.detail.error?.code !== MEDIA_ERR_ABORTED) {
+					genuineErrors.push(e);
+				}
+			});
+
+			// Spurious abort — common on mobile when screen turns off
+			setAudioError(audioEl, createMediaError(MEDIA_ERR_ABORTED, "Aborted"));
+			audioEl.dispatchEvent(new Event("error"));
+			expect(genuineErrors).toHaveLength(0);
+
+			// Genuine network error
+			setAudioError(audioEl, createMediaError(MEDIA_ERR_NETWORK, "Network error"));
+			audioEl.dispatchEvent(new Event("error"));
+			expect(genuineErrors).toHaveLength(1);
+			expect(genuineErrors[0].detail.error?.code).toBe(MEDIA_ERR_NETWORK);
+		});
+
+		it("trackerror after track change carries the new track index", async () => {
+			// When the player advances tracks and the browser aborts the previous
+			// fetch, #loadTrack has already updated the snapshot, so trackerror
+			// reports the new track's index — not the one that just played.
+			const tracks: Track[] = [
+				{ src: "track1.mp3", title: "Track 1" },
+				{ src: "track2.mp3", title: "Track 2" },
+			];
+			const player = new PWAudio({ tracks, repeat: "all" });
+			const audioEl = getCapturedAudio();
+
+			// Advance to track 1
+			await player.next();
+			expect(player.currentIndex).toBe(1);
+
+			const trackerrorHandler = vi.fn();
+			player.on("trackerror", trackerrorHandler);
+
+			// Simulate MEDIA_ERR_ABORTED after track change
+			setAudioError(audioEl, createMediaError(MEDIA_ERR_ABORTED, "Aborted"));
+			audioEl.dispatchEvent(new Event("error"));
+
+			expect(trackerrorHandler).toHaveBeenCalledOnce();
+			const event = trackerrorHandler.mock.calls[0][0] as CustomEvent<TrackErrorDetail>;
+			// The snapshot was updated to track 2 by #loadTrack
+			expect(event.detail.index).toBe(1);
+		});
+	});
 });

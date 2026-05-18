@@ -46,6 +46,17 @@ export interface MediaCardChangeDetail {
 	artwork: MediaImage[];
 }
 
+/**
+ * Detail payload for the 'trackerror' synthetic event.
+ *
+ * `error.code` follows the HTML MediaError spec:
+ *   - 1 (MEDIA_ERR_ABORTED):  The browser aborted fetching — common on mobile
+ *     when the screen turns off, or when the player changes tracks/stops.
+ *     This is expected behaviour, not a genuine playback failure.
+ *   - 2 (MEDIA_ERR_NETWORK):  A network error occurred.
+ *   - 3 (MEDIA_ERR_DECODE):    An error occurred while decoding.
+ *   - 4 (MEDIA_ERR_SRC_NOT_SUPPORTED): The audio source is not supported.
+ */
 export interface TrackErrorDetail {
 	error: MediaError | null;
 	track: Track | null;
