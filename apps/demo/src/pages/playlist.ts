@@ -12,9 +12,14 @@ import { el, span, label } from "../shared/dom";
 import { ALL_TRACKS, formatTime } from "../shared/tracks";
 import { registerSW } from "virtual:pwa-register";
 
-registerSW({
+const updateSW = registerSW({
 	onNeedRefresh() {
-		if (confirm("New content available. Reload?")) window.location.reload();
+		if (sessionStorage.getItem("pwaudio-update-dismissed")) return;
+		if (confirm("New content available. Reload?")) {
+			updateSW(true);
+		} else {
+			sessionStorage.setItem("pwaudio-update-dismissed", "1");
+		}
 	},
 });
 
