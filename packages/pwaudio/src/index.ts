@@ -16,4 +16,6 @@ export type {
 	MediaCardChangeDetail,
 	TrackErrorDetail,
 	NativeEventDetail,
+	StallDetail,
+	RecoveryDetail,
 } from "./types";

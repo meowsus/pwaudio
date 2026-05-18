@@ -12,6 +12,8 @@ import {
 	DESTROYED_ERROR_MESSAGE,
 	NO_TRACK_LOADED_MESSAGE,
 	PRELOAD_THRESHOLD_SECONDS,
+	PLAYBACK_WATCHDOG_INTERVAL_MS,
+	PLAYBACK_STALL_THRESHOLD_SECONDS,
 } from "./constants";
 import { clampVolume, clampPlaybackRate, isFiniteDuration } from "./utils";
 import { EventManager } from "./events";
@@ -89,6 +91,63 @@ export class PWAudio {
 	 */
 	#preloadedSrc: string = "";
 
+	// ─── Background playback resilience ───
+
+	/**
+	 * Whether automatic background playback resilience is enabled.
+	 * When true (default), PWAudio will:
+	 *   - Listen for visibilitychange events and recover stalled playback when the
+	 *     page returns to the foreground
+	 *   - Run a periodic watchdog timer that detects playback stalls (currentTime
+	 *     not advancing while the player believes it should be playing)
+	 *   - Automatically attempt to resume playback after a stall
+	 *   - Manage a Screen Wake Lock to prevent Chrome Android from revoking the
+	 *     media session when the screen turns off
+	 *
+	 * These mechanisms address Chrome Android's aggressive background throttling,
+	 * which can suspend the audio pipeline, stop timeupdate events, and revoke
+	 * the media session notification for background tabs after as little as 1-5
+	 * minutes.
+	 */
+	#backgroundPlaybackEnabled: boolean = true;
+
+	/**
+	 * Reference to the Screen Wake Lock sentinel, if active.
+	 * A wake lock prevents Chrome Android from considering the page as "idle"
+	 * and revoking the media session when the screen turns off.
+	 *
+	 * The wake lock is automatically released when the page becomes hidden
+	 * (per the spec) and re-acquired when the page becomes visible again.
+	 * When the user manually turns off the screen, the lock releases but
+	 * Chrome continues to treat the page as an active media producer.
+	 */
+	#wakeLockSentinel: WakeLockSentinel | null = null;
+
+	/**
+	 * Whether we intend to hold a wake lock (i.e., playback is active).
+	 * Used to re-acquire the lock after visibility changes.
+	 */
+	#wakeLockDesired: boolean = false;
+
+	/**
+	 * Timer ID for the playback health watchdog.
+	 * Checks every PLAYBACK_WATCHDOG_INTERVAL_MS whether currentTime is
+	 * advancing when it should be. If not, attempts recovery.
+	 */
+	#watchdogTimer: ReturnType<typeof setInterval> | null = null;
+
+	/**
+	 * The last observed currentTime value, used by the watchdog to detect stalls.
+	 * Updated on each timeupdate event.
+	 */
+	#lastWatchdogTime: number = 0;
+
+	/**
+	 * The Date.now() timestamp when #lastWatchdogTime was last observed.
+	 * Used by the watchdog to calculate how long currentTime has been stuck.
+	 */
+	#lastWatchdogTimestamp: number = 0;
+
 	constructor(options?: PWAudioOptions) {
 		this.#audio = new Audio();
 
@@ -112,6 +171,9 @@ export class PWAudio {
 
 		// Preload threshold — seconds before track end to start fetching the next track
 		this.#preloadThreshold = options?.preloadThreshold ?? PRELOAD_THRESHOLD_SECONDS;
+
+		// Background playback resilience
+		this.#backgroundPlaybackEnabled = options?.backgroundPlayback ?? true;
 
 		// Initialize event system — #target is the internal dispatch target
 		this.#events = new EventManager(this.#target);
@@ -159,6 +221,11 @@ export class PWAudio {
 
 		// Full position state update on ratechange
 		this.#audio.addEventListener("ratechange", this.#handleRateChange);
+
+		// Background playback resilience: visibility change + wake lock + watchdog
+		if (this.#backgroundPlaybackEnabled) {
+			document.addEventListener("visibilitychange", this.#handleVisibilityChange);
+		}
 
 		// Handle initial tracks/src
 		if (options?.tracks && options.tracks.length > 0) {
@@ -221,12 +288,17 @@ export class PWAudio {
 		// Re-check destroyed after await — destroy() bumps #playGeneration
 		// but as a belt-and-suspenders guard:
 		if (this.#destroyed) return;
+
+		// Background playback resilience: request wake lock and start watchdog
+		this.#startBackgroundPlaybackProtection();
 	}
 
 	pause(): void {
 		this.#throwIfDestroyed();
 		this.#userPaused = true;
 		this.#audio.pause();
+		// Background playback resilience: release wake lock and stop watchdog
+		this.#stopBackgroundPlaybackProtection();
 	}
 
 	/**
@@ -245,6 +317,8 @@ export class PWAudio {
 		this.#endedState = false;
 		this.#userPaused = false;
 		this.#events.emit("stop");
+		// Background playback resilience: release wake lock and stop watchdog
+		this.#stopBackgroundPlaybackProtection();
 	}
 
 	get playing(): boolean {
@@ -625,6 +699,36 @@ export class PWAudio {
 		}
 	}
 
+	// ─── Background Playback Resilience ───
+
+	/**
+	 * Whether background playback resilience is enabled.
+	 * When true, PWAudio manages Screen Wake Lock, visibility-based recovery,
+	 * and a playback stall watchdog to keep audio playing when the app is
+	 * backgrounded on mobile devices.
+	 *
+	 * Default: true
+	 */
+	get backgroundPlayback(): boolean {
+		if (this.#destroyed) return false;
+		return this.#backgroundPlaybackEnabled;
+	}
+
+	set backgroundPlayback(v: boolean) {
+		this.#throwIfDestroyed();
+		if (v === this.#backgroundPlaybackEnabled) return;
+		this.#backgroundPlaybackEnabled = v;
+		if (v) {
+			document.addEventListener("visibilitychange", this.#handleVisibilityChange);
+			if (!this.#userPaused && !this.#stopped && !this.#audio.paused) {
+				this.#startBackgroundPlaybackProtection();
+			}
+		} else {
+			document.removeEventListener("visibilitychange", this.#handleVisibilityChange);
+			this.#stopBackgroundPlaybackProtection();
+		}
+	}
+
 	// ─── Events ───
 
 	on<K extends PlayerEvent>(event: K, handler: PlayerEventHandlerMap[K]): void {
@@ -642,7 +746,7 @@ export class PWAudio {
 		this.#events.off(event, handler);
 	}
 
-	// ─── Internal handlers (stubs — filled in later plans) ───
+	// ─── Internal handlers ───
 
 	#handleEnded = (): void => {
 		// Stale ended event — no tracks loaded
@@ -691,6 +795,8 @@ export class PWAudio {
 		}
 
 		// repeat=off, at the end — stay in endedState
+		// Stop background playback protection since playback has ended
+		this.#stopBackgroundPlaybackProtection();
 	};
 
 	/**
@@ -958,11 +1064,13 @@ export class PWAudio {
 		}
 	};
 
-	/** Handles timeupdate — throttled position state update. */
+	/** Handles timeupdate — throttled position state update + watchdog tracking. */
 	#handleTimeUpdate = (): void => {
-		if (!this.#destroyed) {
-			this.#mediaSession.throttleSetPositionState();
-		}
+		if (this.#destroyed) return;
+		this.#mediaSession.throttleSetPositionState();
+		// Feed the watchdog — currentTime is advancing, update tracking state
+		this.#lastWatchdogTime = this.#audio.currentTime;
+		this.#lastWatchdogTimestamp = Date.now();
 	};
 
 	/**
@@ -1035,6 +1143,232 @@ export class PWAudio {
 		}
 	};
 
+	// ─── Background Playback Resilience (internal) ───
+
+	/**
+	 * Called when play() succeeds — requests a Screen Wake Lock and starts
+	 * the playback health watchdog.
+	 *
+	 * The Screen Wake Lock is the primary defense against Chrome Android's
+	 * background audio throttling. When a wake lock is active:
+	 *   - Chrome treats the page as an active media producer
+	 *   - If the user turns off the screen, the lock releases (per spec) but
+	 *     Chrome continues to honor the media session
+	 *   - The media notification stays visible
+	 *   - The audio pipeline is not suspended
+	 *
+	 * The watchdog is a secondary defense that detects if currentTime stops
+	 * advancing (indicating a suspended audio pipeline) and attempts recovery
+	 * by calling play() again. This handles edge cases where the wake lock
+	 * isn't available or effective (e.g., low battery, browser doesn't support it).
+	 */
+	#startBackgroundPlaybackProtection(): void {
+		if (!this.#backgroundPlaybackEnabled) return;
+
+		// Request Screen Wake Lock
+		this.#requestWakeLock();
+
+		// Start watchdog timer
+		this.#startWatchdog();
+	}
+
+	/**
+	 * Called on pause/stop/ended — releases the Screen Wake Lock and stops
+	 * the playback health watchdog. We no longer need background protection
+	 * when audio isn't playing.
+	 */
+	#stopBackgroundPlaybackProtection(): void {
+		this.#releaseWakeLock();
+		this.#stopWatchdog();
+	}
+
+	/**
+	 * Request a Screen Wake Lock. If the browser doesn't support the API
+	 * or the request is denied (e.g., low battery), we silently continue —
+	 * the watchdog and visibility recovery still provide fallback protection.
+	 */
+	async #requestWakeLock(): Promise<void> {
+		if (!this.#backgroundPlaybackEnabled || this.#destroyed) return;
+
+		// Already holding a lock
+		if (this.#wakeLockSentinel && !this.#wakeLockSentinel.released) return;
+
+		this.#wakeLockDesired = true;
+
+		// Check if the API is available
+		if (typeof navigator === "undefined" || !("wakeLock" in navigator)) return;
+
+		try {
+			this.#wakeLockSentinel = await navigator.wakeLock.request("screen");
+			// Listen for automatic release (happens when page becomes hidden)
+			this.#wakeLockSentinel.addEventListener("release", this.#handleWakeLockRelease);
+		} catch {
+			// Not supported, denied, or page isn't visible — silently continue
+			// The watchdog and visibility recovery still provide fallback protection
+		}
+	}
+
+	/**
+	 * Release the Screen Wake Lock. Called when playback pauses/stops/ends.
+	 */
+	#releaseWakeLock(): void {
+		this.#wakeLockDesired = false;
+		if (this.#wakeLockSentinel) {
+			this.#wakeLockSentinel.removeEventListener("release", this.#handleWakeLockRelease);
+			if (!this.#wakeLockSentinel.released) {
+				this.#wakeLockSentinel.release().catch(() => {});
+			}
+			this.#wakeLockSentinel = null;
+		}
+	}
+
+	/**
+	 * Called when the Screen Wake Lock is released by the browser
+	 * (happens automatically when the page becomes hidden).
+	 * We don't clear #wakeLockDesired — we'll re-acquire on visibility change.
+	 */
+	#handleWakeLockRelease = (): void => {
+		this.#wakeLockSentinel = null;
+	};
+
+	/**
+	 * Handle visibility change events. This is the core of background playback
+	 * resilience — it handles two critical scenarios:
+	 *
+	 * 1. Page becomes VISIBLE after being hidden:
+	 *    - Re-acquire the Screen Wake Lock (Chrome releases it when the page
+	 *      goes hidden per spec, so we need to re-request it)
+	 *    - Check if playback is stalled (currentTime not advancing despite the
+	 *      player believing it's playing) and attempt recovery
+	 *    - Refresh the Media Session state to restore the notification
+	 *
+	 * 2. Page becomes HIDDEN:
+	 *    - The wake lock auto-releases (per spec) — nothing to do
+	 *    - Chrome may suspend the audio pipeline shortly — the watchdog
+	 *      will detect this if it can, or visibility recovery will fix it
+	 */
+	#handleVisibilityChange = (): void => {
+		if (this.#destroyed || !this.#backgroundPlaybackEnabled) return;
+
+		if (document.visibilityState === "visible") {
+			// Page is back in the foreground — re-acquire wake lock if playing
+			if (!this.#userPaused && !this.#stopped && this.#wakeLockDesired) {
+				this.#requestWakeLock();
+			}
+
+			// Detect and recover from stalled playback.
+			// When Chrome suspends the audio pipeline for a background tab, the
+			// audio element reports !paused but currentTime stops advancing.
+			// Check if we need to recover.
+			if (!this.#audio.paused && !this.#stopped && !this.#userPaused) {
+				const stalledFor = (Date.now() - this.#lastWatchdogTimestamp) / 1000;
+				const timeAdvanced = this.#audio.currentTime !== this.#lastWatchdogTime;
+
+				// If currentTime hasn't advanced since the page was backgrounded,
+				// the audio pipeline was suspended. Try to resume.
+				if (!timeAdvanced || stalledFor > PLAYBACK_STALL_THRESHOLD_SECONDS) {
+					this.#recoverPlayback("visibility");
+				}
+			}
+
+			// Refresh Media Session state — Chrome may have revoked the
+			// notification while the page was hidden. Re-setting playbackState
+			// and position state nudges Chrome to restore the notification.
+			if (this.#mediaSession.enabled && !this.#audio.paused) {
+				this.#mediaSession.setPlaybackState("playing");
+				this.#mediaSession.setPositionState();
+			}
+		}
+	};
+
+	/**
+	 * Attempt to recover stalled playback. Called by the watchdog timer or
+	 * the visibility change handler when playback appears to have stalled.
+	 *
+	 * Recovery works by calling play() on the audio element, which forces
+	 * Chrome to re-engage the audio pipeline. The audio resumes from the
+	 * same currentTime where it stalled (not from the beginning).
+	 */
+	#recoverPlayback(reason: "visibility" | "watchdog"): void {
+		if (this.#destroyed || this.#audio.paused || this.#stopped || this.#userPaused) return;
+
+		const stalledFor = (Date.now() - this.#lastWatchdogTimestamp) / 1000;
+
+		// Emit stall event so consumers know playback was interrupted
+		this.#events.emit("stall", {
+			currentTime: this.#audio.currentTime,
+			stalledFor,
+		});
+
+		// Attempt to resume playback. The play() call forces Chrome to
+		// re-engage the audio pipeline. We do NOT reset currentTime —
+		// the audio should resume from where it stalled.
+		void this.#audio
+			.play()
+			.then(() => {
+				this.#events.emit("recovery", {
+					reason,
+					currentTime: this.#audio.currentTime,
+				});
+			})
+			.catch(() => {
+				// Play was rejected — another operation may have intervened, or
+				// the browser refused. Consumers can use the stall event to
+				// implement their own recovery logic.
+			});
+	}
+
+	/**
+	 * Start the playback health watchdog timer.
+	 *
+	 * Every PLAYBACK_WATCHDOG_INTERVAL_MS (5s), checks if currentTime is
+	 * advancing while the player believes it should be playing. If
+	 * currentTime hasn't changed for PLAYBACK_STALL_THRESHOLD_SECONDS (3s),
+	 * attempts recovery by calling play() again.
+	 *
+	 * Note: When Chrome throttles background timers, this interval may
+	 * fire less frequently (once per second or less). That's acceptable —
+	 * the stall threshold is generous enough that delayed detection still
+	 * works, and the visibility change handler provides a guaranteed
+	 * recovery path when the user returns to the app.
+	 */
+	#startWatchdog(): void {
+		if (this.#watchdogTimer !== null) return; // already running
+
+		// Initialize tracking state
+		this.#lastWatchdogTime = this.#audio.currentTime;
+		this.#lastWatchdogTimestamp = Date.now();
+
+		this.#watchdogTimer = setInterval(() => {
+			if (this.#destroyed || this.#audio.paused || this.#stopped || this.#userPaused) {
+				return; // not playing — nothing to check
+			}
+
+			const now = Date.now();
+			const elapsed = (now - this.#lastWatchdogTimestamp) / 1000;
+			const timeAdvanced = this.#audio.currentTime !== this.#lastWatchdogTime;
+
+			if (timeAdvanced) {
+				// Playback is healthy — update tracking state
+				this.#lastWatchdogTime = this.#audio.currentTime;
+				this.#lastWatchdogTimestamp = now;
+			} else if (elapsed >= PLAYBACK_STALL_THRESHOLD_SECONDS) {
+				// currentTime hasn't advanced for too long — attempt recovery
+				this.#recoverPlayback("watchdog");
+			}
+		}, PLAYBACK_WATCHDOG_INTERVAL_MS);
+	}
+
+	/**
+	 * Stop the playback health watchdog timer.
+	 */
+	#stopWatchdog(): void {
+		if (this.#watchdogTimer !== null) {
+			clearInterval(this.#watchdogTimer);
+			this.#watchdogTimer = null;
+		}
+	}
+
 	// ─── Lifecycle ───
 
 	/**
@@ -1072,6 +1406,13 @@ export class PWAudio {
 		this.#audio.removeEventListener("ratechange", this.#handleRateChange);
 		this.#audio.removeEventListener("play", this.#handlePlayState);
 		this.#audio.removeEventListener("pause", this.#handlePauseState);
+
+		// Remove visibility change listener (background playback resilience)
+		document.removeEventListener("visibilitychange", this.#handleVisibilityChange);
+
+		// Stop background playback protection
+		this.#stopWatchdog();
+		this.#releaseWakeLock();
 
 		// Remove all synthetic event listeners
 		this.#events.removeAllListeners();

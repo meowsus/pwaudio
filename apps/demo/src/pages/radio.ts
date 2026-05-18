@@ -18,7 +18,8 @@ function generateSession(): Track[] {
 
 const player = new PWAudio({
 	tracks: generateSession(),
-	preload: "metadata",
+	preload: "auto",
+	backgroundPlayback: true,
 	repeat: "off",
 });
 

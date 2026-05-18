@@ -25,6 +25,12 @@ export const POSITION_STATE_THROTTLE_MS = 1000;
 /** Default preload threshold in seconds — start fetching the next track this many seconds before the current one ends */
 export const PRELOAD_THRESHOLD_SECONDS = 20;
 
+/** How often (ms) the playback watchdog checks if currentTime is advancing */
+export const PLAYBACK_WATCHDOG_INTERVAL_MS = 5000;
+
+/** How long (seconds) currentTime must be stuck before a stall is declared */
+export const PLAYBACK_STALL_THRESHOLD_SECONDS = 3;
+
 /** The list of native HTMLAudioElement events that pwaudio proxies */
 export const PROXIED_NATIVE_EVENTS = [
 	"play",

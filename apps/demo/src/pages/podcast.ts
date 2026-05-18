@@ -20,7 +20,8 @@ const EPISODES = ALL_TRACKS.slice(0, 3).map((t, i) => ({
 
 const player = new PWAudio({
 	tracks: EPISODES,
-	preload: "metadata",
+	preload: "auto",
+	backgroundPlayback: true,
 	playbackRate: 1,
 });
 

@@ -63,6 +63,22 @@ export interface TrackErrorDetail {
 	index: number;
 }
 
+/** Detail payload for the 'stall' event. Fired when playback appears stalled. */
+export interface StallDetail {
+	/** The currentTime when the stall was detected */
+	currentTime: number;
+	/** How many seconds currentTime has been stuck */
+	stalledFor: number;
+}
+
+/** Detail payload for the 'recovery' event. Fired when playback is recovered after a stall. */
+export interface RecoveryDetail {
+	/** What triggered the recovery: 'visibility' = page became visible, 'watchdog' = periodic timer detected stall */
+	reason: "visibility" | "watchdog";
+	/** The currentTime at the time of recovery */
+	currentTime: number;
+}
+
 // ─── Event names union ───
 
 export type PlayerEvent =
@@ -86,7 +102,9 @@ export type PlayerEvent =
 	| "trackchange"
 	| "playlistchange"
 	| "mediacardchange"
-	| "trackerror";
+	| "trackerror"
+	| "stall"
+	| "recovery";
 
 // ─── Typed event handler map ───
 
@@ -110,6 +128,8 @@ export interface PlayerEventHandlerMap {
 	playlistchange: (e: CustomEvent<PlaylistChangeDetail>) => void;
 	mediacardchange: (e: CustomEvent<MediaCardChangeDetail>) => void;
 	trackerror: (e: CustomEvent<TrackErrorDetail>) => void;
+	stall: (e: CustomEvent<StallDetail>) => void;
+	recovery: (e: CustomEvent<RecoveryDetail>) => void;
 }
 
 // ─── Options ───
@@ -145,4 +165,33 @@ export interface PWAudioOptions {
 	 * Set to 0 or less to disable preloading. Default: 20.
 	 */
 	preloadThreshold?: number;
+	/**
+	 * Enable background playback resilience for mobile devices.
+	 *
+	 * When true (default), PWAudio will automatically manage:
+	 *   - **Screen Wake Lock**: Requests a wake lock when playback starts, which
+	 *     signals to Chrome Android that the page is an active media producer.
+	 *     When the user turns off the screen, the lock releases but Chrome
+	 *     continues to honor the media session — the notification stays visible
+	 *     and the audio pipeline is not suspended.
+	 *   - **Playback watchdog**: A periodic timer that detects if `currentTime`
+	 *     stops advancing while the player believes it should be playing, and
+	 *     attempts recovery by calling `play()` again.
+	 *   - **Visibility recovery**: When the page returns to the foreground after
+	 *     being backgrounded, detects stalled playback and auto-resumes.
+	 *   - **Media Session refresh**: Re-asserts `playbackState = "playing"` and
+	 *     updates position state when the page becomes visible, restoring the
+	 *     media notification if Chrome revoked it while the app was backgrounded.
+	 *
+	 * These mechanisms address Chrome Android's aggressive background throttling,
+	 * which can suspend the audio pipeline, stop `timeupdate` events, and revoke
+	 * the media session notification for background tabs after as little as 1-5
+	 * minutes.
+	 *
+	 * Set to false to disable all background playback resilience if you want
+	 * to manage wake locks and recovery yourself.
+	 *
+	 * Default: true
+	 */
+	backgroundPlayback?: boolean;
 }

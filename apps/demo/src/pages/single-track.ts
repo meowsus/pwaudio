@@ -12,7 +12,8 @@ registerSW({
 
 const player = new PWAudio({
 	src: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3",
-	preload: "metadata",
+	preload: "auto",
+	backgroundPlayback: true,
 });
 
 const app = document.getElementById("app")!;

@@ -1,5 +1,12 @@
 import { PWAudio } from "pwaudio";
-import type { Track, TrackChangeDetail, RepeatMode, ShuffleMode } from "pwaudio";
+import type {
+	Track,
+	TrackChangeDetail,
+	RepeatMode,
+	ShuffleMode,
+	StallDetail,
+	RecoveryDetail,
+} from "pwaudio";
 import "../shared/style.css";
 import { el, span, label } from "../shared/dom";
 import { ALL_TRACKS, formatTime } from "../shared/tracks";
@@ -16,9 +23,10 @@ const PLAYLIST_TRACKS: Track[] = ALL_TRACKS.slice(0, 15);
 
 const player = new PWAudio({
 	tracks: PLAYLIST_TRACKS,
-	preload: "metadata",
+	preload: "auto",
 	repeat: "off",
 	shuffle: "off",
+	backgroundPlayback: true,
 });
 
 const app = document.getElementById("app")!;
@@ -221,6 +229,12 @@ player.on("durationchange", () => {
 });
 player.on("trackerror", (e) => {
 	statusEl.textContent = `Track error: ${e.detail.error?.message ?? "unknown"} (index ${e.detail.index})`;
+});
+player.on("stall", (e: CustomEvent<StallDetail>) => {
+	statusEl.textContent = `Playback stalled at ${formatTime(e.detail.currentTime)} (${e.detail.stalledFor.toFixed(1)}s)`;
+});
+player.on("recovery", (e: CustomEvent<RecoveryDetail>) => {
+	statusEl.textContent = `Recovered (${e.detail.reason}) at ${formatTime(e.detail.currentTime)}`;
 });
 
 // First render

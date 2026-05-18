@@ -19,7 +19,8 @@ const LIBRARY_TRACKS: Track[] = ALL_TRACKS.slice(0, 4).map((t, i) => ({
 
 const player = new PWAudio({
 	tracks: LIBRARY_TRACKS,
-	preload: "metadata",
+	preload: "auto",
+	backgroundPlayback: true,
 });
 
 const app = document.getElementById("app")!;
