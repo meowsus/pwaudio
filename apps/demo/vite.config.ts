@@ -13,6 +13,18 @@ export default defineConfig({
 		port: 3000,
 		open: true,
 	},
+	build: {
+		rollupOptions: {
+			input: {
+				index: resolve(__dirname, "index.html"),
+				"single-track": resolve(__dirname, "single-track/index.html"),
+				playlist: resolve(__dirname, "playlist/index.html"),
+				radio: resolve(__dirname, "radio/index.html"),
+				podcast: resolve(__dirname, "podcast/index.html"),
+				hybrid: resolve(__dirname, "hybrid/index.html"),
+			},
+		},
+	},
 	plugins: [
 		VitePWA({
 			registerType: "prompt",
