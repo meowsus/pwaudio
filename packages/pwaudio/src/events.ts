@@ -10,6 +10,9 @@ export class EventManager {
 	/** Synthetic event registry — maps event name to subscribed handlers */
 	#listeners = new Map<string, Set<EventListener>>();
 
+	/** Maps original handler to its once-wrapper, so off() can remove wrappers */
+	#onceWrappers = new Map<EventListener, EventListener>();
+
 	/** Native event proxy registry — maps native event name to the bound proxy handler */
 	#nativeListeners = new Map<string, EventListener>();
 
@@ -32,10 +35,15 @@ export class EventManager {
 	}
 
 	once<K extends PlayerEvent>(event: K, handler: PlayerEventHandlerMap[K]): void {
-		const onceWrapper: PlayerEventHandlerMap[K] = ((e: CustomEvent) => {
+		let onceWrapper: PlayerEventHandlerMap[K];
+
+		onceWrapper = ((e: CustomEvent) => {
 			handler(e);
 			this.off(event, onceWrapper as PlayerEventHandlerMap[K]);
 		}) as PlayerEventHandlerMap[K];
+
+		// Track the mapping so off() can find the wrapper from the original handler
+		this.#onceWrappers.set(handler as EventListener, onceWrapper as EventListener);
 
 		this.on(event, onceWrapper);
 	}
@@ -43,7 +51,22 @@ export class EventManager {
 	off<K extends PlayerEvent>(event: K, handler: PlayerEventHandlerMap[K]): void {
 		const handlers = this.#listeners.get(event);
 		if (handlers) {
-			handlers.delete(handler as EventListener);
+			// If the handler was registered via once(), look up its wrapper
+			const actualHandler =
+				this.#onceWrappers.get(handler as EventListener) ?? (handler as EventListener);
+
+			handlers.delete(actualHandler);
+
+			// Clean up the mapping if it exists
+			this.#onceWrappers.delete(handler as EventListener);
+			// Also remove if handler IS the wrapper
+			for (const [original, wrapper] of this.#onceWrappers) {
+				if (wrapper === actualHandler) {
+					this.#onceWrappers.delete(original);
+					break;
+				}
+			}
+
 			if (handlers.size === 0) {
 				this.#listeners.delete(event);
 			}
@@ -98,5 +121,6 @@ export class EventManager {
 	 */
 	removeAllListeners(): void {
 		this.#listeners.clear();
+		this.#onceWrappers.clear();
 	}
 }

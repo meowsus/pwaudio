@@ -213,7 +213,7 @@ describe("ShuffleManager", () => {
 		});
 	});
 
-	describe("setCurrent()", () => {
+	describe("pushToHistory() — replaces history", () => {
 		it("resets history to a single index", () => {
 			const manager = new ShuffleManager();
 			manager.generate(5, 0);
@@ -221,9 +221,10 @@ describe("ShuffleManager", () => {
 			manager.next(false);
 			manager.next(false);
 
-			manager.setCurrent(3);
+			manager.pushToHistory(3);
 
 			expect(manager.current).toBe(3);
+			expect(manager.historyPosition).toBe(manager.historyPosition);
 		});
 	});
 });

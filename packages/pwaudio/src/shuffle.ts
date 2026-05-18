@@ -28,8 +28,8 @@ export class ShuffleManager {
 	generate(trackCount: number, currentIndex: number): void {
 		if (trackCount <= 0) {
 			this.#order = [];
-			this.#history = [currentIndex];
-			this.#historyPosition = 0;
+			this.#history = currentIndex >= 0 ? [currentIndex] : [];
+			this.#historyPosition = currentIndex >= 0 ? 0 : -1;
 			return;
 		}
 
@@ -110,13 +110,6 @@ export class ShuffleManager {
 	}
 
 	/**
-	 * Get the current shuffle order (read-only copy).
-	 */
-	get order(): readonly number[] {
-		return [...this.#order];
-	}
-
-	/**
 	 * Get the current track index from history.
 	 */
 	get current(): number {
@@ -127,6 +120,14 @@ export class ShuffleManager {
 	}
 
 	/**
+	 * Get the current shuffle order (read-only copy).
+	 * Intended for testing/debugging; not used by PWAudio.
+	 */
+	get order(): readonly number[] {
+		return [...this.#order];
+	}
+
+	/**
 	 * Push a track index onto history (used when navigating by goto).
 	 */
 	pushToHistory(index: number): void {
@@ -134,15 +135,6 @@ export class ShuffleManager {
 		this.#history = this.#history.slice(0, this.#historyPosition + 1);
 		this.#history.push(index);
 		this.#historyPosition = this.#history.length - 1;
-	}
-
-	/**
-	 * Update the current position in history (used when playlist is replaced
-	 * and currentIndex changes externally).
-	 */
-	setCurrent(index: number): void {
-		this.#history = [index];
-		this.#historyPosition = 0;
 	}
 
 	/**

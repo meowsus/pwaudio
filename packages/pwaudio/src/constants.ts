@@ -40,8 +40,8 @@ export const PROXIED_NATIVE_EVENTS = [
 	"loadedmetadata",
 ] as const;
 
-/** Error message thrown when calling methods after destroy() */
+/** Error message thrown when calling methods after destroy() — kept in sync with PWAudio.#throwIfDestroyed */
 export const DESTROYED_ERROR_MESSAGE = "PWAudio has been destroyed";
 
-/** Error message when play() is called on an empty playlist */
+/** Error message when play() is called on an empty playlist — kept in sync with PWAudio.play */
 export const NO_TRACK_LOADED_MESSAGE = "No track loaded";

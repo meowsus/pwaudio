@@ -7,7 +7,7 @@ import type {
 	PlayerEvent,
 	PlayerEventHandlerMap,
 } from "./types";
-import { DEFAULTS } from "./constants";
+import { DEFAULTS, DESTROYED_ERROR_MESSAGE, NO_TRACK_LOADED_MESSAGE } from "./constants";
 import { clampVolume, clampPlaybackRate } from "./utils";
 import { EventManager } from "./events";
 import { ShuffleManager } from "./shuffle";
@@ -33,18 +33,22 @@ export class PWAudio {
 	#shuffleManager = new ShuffleManager();
 	#mediaSession: MediaSessionManager;
 
+	/** Snapshot of the track that was last loaded via #loadTrack, used by #handleError */
+	#lastLoadedTrack: Track | null = null;
+	#lastLoadedIndex: number = -1;
+
 	constructor(options?: PWAudioOptions) {
 		this.#audio = new Audio();
 
-		// Apply preload before any load
-		this.#audio.preload = options?.preload ?? DEFAULTS.preload;
+		// Apply preload — assign to #preloadStrategy first, then apply to audio
+		this.#preloadStrategy = options?.preload ?? DEFAULTS.preload;
+		this.#audio.preload = this.#preloadStrategy;
 
 		// Apply volume and playbackRate
 		this.#audio.volume = clampVolume(options?.volume ?? DEFAULTS.volume);
 		this.#audio.playbackRate = clampPlaybackRate(options?.playbackRate ?? DEFAULTS.playbackRate);
 
 		// Apply constructor-only options
-		this.#preloadStrategy = options?.preload ?? DEFAULTS.preload;
 		this.#repeat = options?.repeat ?? DEFAULTS.repeat;
 		this.#shuffle = options?.shuffle ?? DEFAULTS.shuffle;
 		this.#mediaSessionEnabled = options?.mediaSessionEnabled ?? DEFAULTS.mediaSessionEnabled;
@@ -102,10 +106,14 @@ export class PWAudio {
 		if (options?.tracks && options.tracks.length > 0) {
 			this.#tracks = [...options.tracks];
 			this.#currentIndex = 0;
+			this.#lastLoadedTrack = this.#tracks[0];
+			this.#lastLoadedIndex = 0;
 			this.#audio.src = this.#tracks[0].src;
 		} else if (options?.src) {
 			this.#tracks = [{ src: options.src }];
 			this.#currentIndex = 0;
+			this.#lastLoadedTrack = this.#tracks[0];
+			this.#lastLoadedIndex = 0;
 			this.#audio.src = options.src;
 		}
 
@@ -121,8 +129,12 @@ export class PWAudio {
 		this.#throwIfDestroyed();
 
 		if (this.#tracks.length === 0) {
-			return Promise.reject(new Error("No track loaded"));
+			return Promise.reject(new Error(NO_TRACK_LOADED_MESSAGE));
 		}
+
+		// Capture generation before any state mutation — guards against stale play() calls
+		// that are superseded by next(), previous(), goto(), stop(), or destroy()
+		const generation = this.#playGeneration;
 
 		// If ended, restart from beginning
 		if (this.#endedState) {
@@ -131,10 +143,6 @@ export class PWAudio {
 
 		this.#endedState = false;
 		this.#stopped = false;
-
-		// Capture generation before awaiting — guards against stale play() calls
-		// that are superseded by next(), previous(), goto(), or stop()
-		const generation = this.#playGeneration;
 
 		try {
 			await this.#audio.play();
@@ -146,10 +154,14 @@ export class PWAudio {
 			throw error;
 		}
 
-		// If another track was loaded while we were playing, discard the success
+		// Discard stale results: if another operation superseded us, roll back state
 		if (this.#playGeneration !== generation) {
 			return; // stale generation — silently discard
 		}
+
+		// Re-check destroyed after await — destroy() bumps #playGeneration
+		// but as a belt-and-suspenders guard:
+		if (this.#destroyed) return;
 	}
 
 	pause(): void {
@@ -166,6 +178,7 @@ export class PWAudio {
 	 */
 	stop(): void {
 		this.#throwIfDestroyed();
+		this.#playGeneration++; // invalidate in-flight play() promises
 		this.#audio.pause();
 		this.#audio.currentTime = 0;
 		this.#stopped = true;
@@ -175,7 +188,7 @@ export class PWAudio {
 
 	get playing(): boolean {
 		if (this.#destroyed) return false;
-		return !this.#audio.paused;
+		return !this.#audio.paused && !this.#stopped;
 	}
 
 	get paused(): boolean {
@@ -189,9 +202,20 @@ export class PWAudio {
 		return this.#stopped;
 	}
 
-	get endedState(): boolean {
+	/** Whether playback has ended (track finished with repeat=off). */
+	get ended(): boolean {
 		if (this.#destroyed) return false;
 		return this.#endedState;
+	}
+
+	/** @deprecated Use ended instead */
+	get endedState(): boolean {
+		return this.ended;
+	}
+
+	/** Whether the instance has been destroyed. */
+	get destroyed(): boolean {
+		return this.#destroyed;
 	}
 
 	// ─── Seek & Time ───
@@ -326,19 +350,32 @@ export class PWAudio {
 	set src(url: string) {
 		this.#throwIfDestroyed();
 		// Destructive: replaces entire playlist with single-track
+		this.#playGeneration++; // invalidate in-flight play() promises
+		this.#audio.pause(); // pause before changing source
 		const previousIndex = this.#currentIndex;
-		this.#tracks = [{ src: url }];
+		const track: Track = { src: url };
+		this.#tracks = [track];
 		this.#currentIndex = 0;
 		this.#audio.src = url;
 		this.#audio.preload = this.#preloadStrategy;
 		this.#stopped = true;
 		this.#endedState = false;
+		this.#shuffleManager.clear(); // reset stale shuffle state
+
+		// Snapshot track info for #handleError
+		this.#lastLoadedTrack = track;
+		this.#lastLoadedIndex = this.#currentIndex;
+
+		this.#updateMediaSession();
+
 		this.#events.emit("playlistchange", { tracks: this.#tracks });
+		// Always emit trackchange for src setter — it's a destructive operation
+		// that replaces the playlist. Even if index stays at 0, the track content has changed.
 		if (previousIndex !== this.#currentIndex || previousIndex !== -1) {
 			this.#events.emit("trackchange", {
 				previousIndex,
 				currentIndex: this.#currentIndex,
-				track: this.#tracks[0] ?? null,
+				track,
 			});
 		}
 	}
@@ -372,16 +409,30 @@ export class PWAudio {
 
 		if (newTracks.length === 0) {
 			this.#currentIndex = -1;
+			this.#shuffleManager.clear(); // reset stale shuffle state
 		} else if (currentSrc) {
 			const newIndex = newTracks.findIndex((t) => t.src === currentSrc);
 			this.#currentIndex = newIndex !== -1 ? newIndex : 0;
+
+			// If current song wasn't found, load the first track
+			if (newIndex === -1) {
+				this.#loadTrack(newTracks[0]);
+			}
+
+			// Regenerate shuffle order if shuffle is on
+			if (this.#shuffle === "on") {
+				this.#shuffleManager.generate(newTracks.length, this.#currentIndex);
+			}
 		} else {
 			this.#currentIndex = 0;
-		}
 
-		// Regenerate shuffle order if shuffle is on
-		if (this.#shuffle === "on" && newTracks.length > 0) {
-			this.#shuffleManager.generate(newTracks.length, this.#currentIndex);
+			// Load the first track
+			this.#loadTrack(newTracks[0]);
+
+			// Regenerate shuffle order if shuffle is on
+			if (this.#shuffle === "on") {
+				this.#shuffleManager.generate(newTracks.length, this.#currentIndex);
+			}
 		}
 
 		this.#events.emit("playlistchange", { tracks: this.#tracks });
@@ -499,6 +550,9 @@ export class PWAudio {
 		// Stale ended event — no tracks loaded
 		if (this.#tracks.length === 0) return;
 
+		// Ignore ended event if stopped — avoids contradictory stopped+endedState
+		if (this.#stopped) return;
+
 		this.#endedState = true;
 
 		// Capture generation to detect if another operation supersedes us
@@ -507,7 +561,7 @@ export class PWAudio {
 		if (this.#repeat === "one") {
 			this.#endedState = false;
 			this.#audio.currentTime = 0;
-			this.#audio.play();
+			void this.play().catch(() => {}); // guarded by playGeneration
 			return;
 		}
 
@@ -515,14 +569,14 @@ export class PWAudio {
 		if (this.#repeat === "all" && this.#tracks.length === 1) {
 			this.#endedState = false;
 			this.#audio.currentTime = 0;
-			this.#audio.play();
+			void this.play().catch(() => {}); // guarded by playGeneration
 			return;
 		}
 
 		if (this.#repeat === "all") {
 			// If a new track was loaded since the ended event fired, don't advance
 			if (this.#playGeneration !== generation) return;
-			void this.next();
+			void this.next().catch(() => {});
 			return;
 		}
 
@@ -530,7 +584,7 @@ export class PWAudio {
 		if (this.#currentIndex < this.#tracks.length - 1 || this.#shuffle === "on") {
 			// If a new track was loaded since the ended event fired, don't advance
 			if (this.#playGeneration !== generation) return;
-			void this.next();
+			void this.next().catch(() => {});
 			return;
 		}
 
@@ -538,20 +592,14 @@ export class PWAudio {
 	};
 
 	#handleError = (): void => {
-		// Capture the current track at the time of error, before any generation checks.
-		// Even if #loadTrack() has already been called for a new track
-		// (incrementing the generation), the error event fires for the
-		// previous src, so we capture the track info that was active.
-		const errorTrack = this.#currentTrack();
-		const errorIndex = this.#currentIndex;
-
-		// Emit trackerror synthetic event — always fire, even if generation
-		// has changed. The consumer needs to know that a track failed to load,
-		// even if they've already navigated away.
+		// Use the snapshot taken at load time, not current state.
+		// After #loadTrack() is called for a new track (incrementing generation),
+		// #currentIndex may already point to the new track. The error event
+		// fires for the previous src, so we report the track that was loading.
 		this.#events.emit("trackerror", {
 			error: this.#audio.error,
-			track: errorTrack,
-			index: errorIndex,
+			track: this.#lastLoadedTrack,
+			index: this.#lastLoadedIndex,
 		});
 	};
 
@@ -709,6 +757,12 @@ export class PWAudio {
 		this.#playGeneration++;
 		this.#stopped = false;
 		this.#endedState = false;
+
+		// Snapshot track info for #handleError — the error event fires
+		// for the src that was loading, which may no longer be current.
+		this.#lastLoadedTrack = track;
+		this.#lastLoadedIndex = this.#currentIndex;
+
 		this.#audio.src = track.src;
 		this.#audio.preload = this.#preloadStrategy;
 		this.#updateMediaSession();
@@ -803,6 +857,9 @@ export class PWAudio {
 	destroy(): void {
 		if (this.#destroyed) return; // Idempotent
 
+		// Invalidate in-flight play() continuations before async resumes
+		this.#playGeneration++;
+
 		// 1. Pause playback
 		this.#audio.pause();
 
@@ -842,7 +899,7 @@ export class PWAudio {
 	 */
 	#throwIfDestroyed(): void {
 		if (this.#destroyed) {
-			throw new DOMException("PWAudio has been destroyed", "InvalidStateError");
+			throw new DOMException(DESTROYED_ERROR_MESSAGE, "InvalidStateError");
 		}
 	}
 }
