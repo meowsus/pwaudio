@@ -16,11 +16,10 @@ export class EventManager {
 	/** Native event proxy registry — maps native event name to the bound proxy handler */
 	#nativeListeners = new Map<string, EventListener>();
 
-	/** The EventTarget to dispatch CustomEvents on */
-	#target: EventTarget;
-
-	constructor(target: EventTarget) {
-		this.#target = target;
+	constructor(_target: EventTarget) {
+		// _target was originally used for dispatching CustomEvents via EventTarget.dispatchEvent(),
+		// but emit() now calls handlers directly for efficiency. Kept in constructor signature
+		// for backward compatibility in case external code extends EventManager.
 	}
 
 	// ─── Typed subscription ───

@@ -151,12 +151,12 @@ describe("Edge cases", () => {
 	});
 
 	describe("state matrix", () => {
-		it("initial: playing=false, paused=false, stopped=true, endedState=false", () => {
+		it("initial: playing=false, paused=false, stopped=true, ended=false", () => {
 			const player = new PWAudio();
 			expect(player.playing).toBe(false);
 			expect(player.paused).toBe(false);
 			expect(player.stopped).toBe(true);
-			expect(player.endedState).toBe(false);
+			expect(player.ended).toBe(false);
 		});
 
 		it("initial with src: stopped=true (not playing)", () => {
@@ -164,29 +164,29 @@ describe("Edge cases", () => {
 			expect(player.playing).toBe(false);
 			expect(player.paused).toBe(false);
 			expect(player.stopped).toBe(true);
-			expect(player.endedState).toBe(false);
+			expect(player.ended).toBe(false);
 		});
 
-		it("after play(): playing=true, paused=false, stopped=false, endedState=false", async () => {
+		it("after play(): playing=true, paused=false, stopped=false, ended=false", async () => {
 			const player = new PWAudio({ src: "test.mp3" });
 			await player.play().catch(() => {
 				// autoplay may be blocked
 			});
 			expect(player.stopped).toBe(false);
-			expect(player.endedState).toBe(false);
+			expect(player.ended).toBe(false);
 			// playing and paused depend on whether autoplay was blocked
 		});
 
-		it("after stop(): playing=false, paused=false, stopped=true, endedState=false", () => {
+		it("after stop(): playing=false, paused=false, stopped=true, ended=false", () => {
 			const player = new PWAudio({ src: "test.mp3" });
 			player.stop();
 			expect(player.playing).toBe(false);
 			expect(player.paused).toBe(false);
 			expect(player.stopped).toBe(true);
-			expect(player.endedState).toBe(false);
+			expect(player.ended).toBe(false);
 		});
 
-		it("after ended: stopped=false, endedState=true", () => {
+		it("after ended: stopped=false, ended=true", () => {
 			installAudioCapture();
 			try {
 				const player = new PWAudio({
@@ -201,7 +201,7 @@ describe("Edge cases", () => {
 				// Dispatch ended event
 				audioEl.dispatchEvent(new Event("ended"));
 
-				expect(player.endedState).toBe(true);
+				expect(player.ended).toBe(true);
 				expect(player.stopped).toBe(false);
 				// Note: playing/paused depend on HTMLAudioElement.paused which
 				// may vary across environments after dispatching ended events.
@@ -292,7 +292,7 @@ describe("Edge cases", () => {
 
 				// Should stay on same track (repeat=one behavior)
 				expect(player.currentIndex).toBe(0);
-				expect(player.endedState).toBe(false);
+				expect(player.ended).toBe(false);
 			} finally {
 				restoreAudio();
 			}
@@ -373,14 +373,14 @@ describe("Edge cases", () => {
 			expect(event.detail).toBeNull();
 		});
 
-		it("sets stopped=true and clears endedState", () => {
+		it("sets stopped=true and clears ended", () => {
 			installAudioCapture();
 			try {
 				const player = new PWAudio({ src: "test.mp3" });
 				player.stop();
 
 				expect(player.stopped).toBe(true);
-				expect(player.endedState).toBe(false);
+				expect(player.ended).toBe(false);
 			} finally {
 				restoreAudio();
 			}
@@ -484,8 +484,8 @@ describe("Edge cases", () => {
 		});
 	});
 
-	describe("play() clears endedState", () => {
-		it("clears endedState when play() is called after ended", async () => {
+	describe("play() clears ended", () => {
+		it("clears ended when play() is called after ended", async () => {
 			installAudioCapture();
 			try {
 				const player = new PWAudio({
@@ -500,12 +500,12 @@ describe("Edge cases", () => {
 
 				// Dispatch ended event on last track with repeat=off
 				audioEl.dispatchEvent(new Event("ended"));
-				// endedState should be set
-				expect(player.endedState).toBe(true);
+				// ended should be set
+				expect(player.ended).toBe(true);
 
-				// play() should clear endedState and restart
+				// play() should clear ended and restart
 				await player.play().catch(() => {});
-				expect(player.endedState).toBe(false);
+				expect(player.ended).toBe(false);
 			} finally {
 				restoreAudio();
 			}

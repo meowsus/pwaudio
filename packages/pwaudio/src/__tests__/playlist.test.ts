@@ -102,16 +102,16 @@ describe("Playlist Engine", () => {
 
 		// Note: DOMException after destroy() is tested in destroy/lifecycle tests (Plan 10)
 
-		it("clears endedState when advancing", async () => {
+		it("clears ended when advancing", async () => {
 			const player = createPlayerWithTracks();
 			player.repeat = "off";
 
-			// endedState starts as false
-			expect(player.endedState).toBe(false);
+			// ended starts as false
+			expect(player.ended).toBe(false);
 
-			// After next(), endedState should still be false
+			// After next(), ended should still be false
 			await player.next();
-			expect(player.endedState).toBe(false);
+			expect(player.ended).toBe(false);
 		});
 
 		it("sets the audio source to the new track", async () => {
@@ -304,13 +304,13 @@ describe("Playlist Engine", () => {
 			expect(handler).not.toHaveBeenCalled();
 		});
 
-		it("clears endedState", async () => {
+		it("clears ended", async () => {
 			const player = createPlayerWithTracks();
-			// endedState starts false
-			expect(player.endedState).toBe(false);
+			// ended starts false
+			expect(player.ended).toBe(false);
 
 			await player.goto(2);
-			expect(player.endedState).toBe(false);
+			expect(player.ended).toBe(false);
 		});
 
 		// Note: DOMException after destroy() is tested in destroy/lifecycle tests (Plan 10)
@@ -336,12 +336,12 @@ describe("Playlist Engine", () => {
 			expect(player.stopped).toBe(false);
 		});
 
-		it("clears endedState on track change", async () => {
+		it("clears ended on track change", async () => {
 			const player = createPlayerWithTracks();
-			// Verify endedState is false initially and stays false after navigation
-			expect(player.endedState).toBe(false);
+			// Verify ended is false initially and stays false after navigation
+			expect(player.ended).toBe(false);
 			await player.next();
-			expect(player.endedState).toBe(false);
+			expect(player.ended).toBe(false);
 		});
 
 		it("sets audio source to the track's src", async () => {
@@ -354,44 +354,44 @@ describe("Playlist Engine", () => {
 	// ─── #handleEnded behavior (tested via observable state) ───
 
 	describe("#handleEnded behavior", () => {
-		it("sets endedState to true when at end with repeat=off", () => {
-			// Verify initial endedState is false
+		it("sets ended to true when at end with repeat=off", () => {
+			// Verify initial ended is false
 			const player = createPlayerWithTracks();
 			player.repeat = "off";
-			expect(player.endedState).toBe(false);
+			expect(player.ended).toBe(false);
 
-			// endedState is observable via the public getter.
+			// ended is observable via the public getter.
 			// The actual ended event needs to be triggered from the
 			// audio element (tested in integration), but we verify
 			// the getter contract here.
 		});
 
-		it("next() clears endedState set by handleEnded", async () => {
+		it("next() clears ended set by handleEnded", async () => {
 			const player = createPlayerWithTracks();
 			player.repeat = "off";
 
-			// Verify endedState starts false
-			expect(player.endedState).toBe(false);
+			// Verify ended starts false
+			expect(player.ended).toBe(false);
 
-			// After next(), endedState should remain false
+			// After next(), ended should remain false
 			await player.next();
-			expect(player.endedState).toBe(false);
+			expect(player.ended).toBe(false);
 		});
 
-		it("previous() clears endedState", async () => {
+		it("previous() clears ended", async () => {
 			const player = createPlayerWithTracks();
 			player.repeat = "off";
 
 			await player.next();
-			expect(player.endedState).toBe(false);
+			expect(player.ended).toBe(false);
 		});
 
-		it("goto() clears endedState", async () => {
+		it("goto() clears ended", async () => {
 			const player = createPlayerWithTracks();
 			player.repeat = "off";
 
 			await player.goto(2);
-			expect(player.endedState).toBe(false);
+			expect(player.ended).toBe(false);
 		});
 	});
 

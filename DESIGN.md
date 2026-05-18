@@ -264,6 +264,14 @@ interface PWAudioOptions {
 	 *  If currentTime exceeds this value, previous() restarts the current
 	 *  track instead of going back. Default: 3 */
 	previousRestartThreshold?: number;
+	/**
+	 * Seconds before the end of the current track to start preloading the next.
+	 * Preloading fetches the next track's audio data into the browser cache so
+	 * that track transitions happen without a network request — critical on
+	 * mobile devices where the browser throttles background tabs.
+	 * Set to 0 or less to disable preloading. Default: 20.
+	 */
+	preloadThreshold?: number;
 }
 ```
 
@@ -494,6 +502,21 @@ class PWAudio {
 	get previousRestartThreshold(): number;
 	set previousRestartThreshold(seconds: number);
 
+	// ─── Next-track preloading ───
+
+	/**
+	 * Seconds before the end of the current track to start preloading the next.
+	 * Set to 0 or less to disable preloading. Default: 20.
+	 *
+	 * Preloading starts fetching the next track's audio data into the browser
+	 * cache when the current track is within this many seconds of ending. This
+	 * is critical on mobile devices where the browser throttles background tabs —
+	 * without preloading, the network fetch for the next track may be killed,
+	 * producing `MEDIA_ERR_SRC_NOT_SUPPORTED` ("Format error") and stopping playback.
+	 */
+	get preloadThreshold(): number;
+	set preloadThreshold(seconds: number);
+
 	// ─── Media Session ───
 
 	/** Whether Media Session API integration is active. Default: true */
@@ -560,8 +583,13 @@ PWAudio
 ├── #mediaSessionEnabled: boolean
 ├── #destroyed: boolean
 ├── #stopped: boolean               // true after stop() or before first play()
+├── #userPaused: boolean            // true after user-initiated pause(), cleared on play()/stop()
 ├── #endedState: boolean            // true after ended event, cleared on play()/next()/previous()/goto()/stop()
 ├── #playGeneration: number          // incremented on every loadTrack(), guards async play()
+├── #preloadAudio: HTMLAudioElement | null  // lazy secondary element for next-track preloading
+├── #preloadThreshold: number       // seconds before track end to start preloading (default: 20)
+├── #preloadStarted: boolean        // whether preload has been triggered for current track
+├── #preloadedSrc: string           // src URL currently preloaded (avoids redundant fetches)
 ├── #listeners: Map<string, Set<EventListener>>  // synthetic event registry
 ├── #nativeListeners: Map<string, EventListener>    // native event proxy registry
 ├── #positionStateThrottle: number   // last timestamp for setPositionState throttle
@@ -576,7 +604,13 @@ PWAudio
 │
 ├── #handleEnded()                  // decides: repeat one? advance? stop?
 ├── #handleError()                  // emits trackerror, does not auto-skip
-├── #advanceTrack(direction)        // next/prev logic with repeat + shuffle
+├── #handlePlayState()              // sets MediaSession playbackState on 'play'
+├── #handlePauseState()             // keeps playbackState 'playing' during track transitions
+├── #mediaSessionKeepAlive()        // sets playbackState='playing' during transitions
+├── #handlePreload()                // preloads next track when near end of current track
+├── #handleTimeUpdate()             // throttled setPositionState
+├── #handleRateChange()              // full setPositionState
+├── #getPreloadAudio()               // lazy creation of preload audio element
 ├── #loadTrack(track)               // set audio.src, update Media Session, increment #playGeneration
 ├── #updateMediaSession()           // sync metadata + action handlers
 ├── #generateShuffleOrder()         // Fisher-Yates on current tracks
@@ -855,7 +889,24 @@ The `preload` attribute on `HTMLAudioElement` must be set **before** `load()` is
 2. On every `loadTrack()` call — re-applied to the element before `load()`.
 3. When the consumer changes `preload` via the setter — applied immediately, but only takes full effect on the next `loadTrack()`.
 
-### 7.10 Volume and playbackRate clamping
+### 7.10 Next-track preloading
+
+On mobile devices, when the screen is off, the browser aggressively throttles background tabs. If a track ends and the player needs to fetch the next track's audio data, the network request may be blocked or killed, producing a `MEDIA_ERR_SRC_NOT_SUPPORTED` ("Format error") or `MEDIA_ERR_ABORTED` error and halting playback entirely.
+
+To prevent this, PWAudio preloads the next track before the current one ends. When the current track is within `preloadThreshold` seconds (default: 20) of its end, a secondary `HTMLAudioElement` with `preload="auto"` starts fetching the next track's data into the browser's HTTP cache. When the player later advances to that track, the browser can serve the data from cache instead of making a new network request — which is the difference between seamless playback and a dead stop on mobile.
+
+Key behaviors:
+
+1. **Configurable threshold**: `preloadThreshold` defaults to 20 seconds. Set to 0 or a negative value to disable preloading entirely.
+2. **Lazy creation**: The preload `HTMLAudioElement` is created only when first needed, not at construction.
+3. **Respects playlist logic**: Preload only fetches the track that `next()` would advance to, accounting for repeat mode (`off`, `one`, `all`) and shuffle mode.
+4. **Deduplication**: Won't preload the same `src` twice, and won't preload if the next track has the same URL as the current one.
+5. **State resets**: Preload state is reset on track change, shuffle change, repeat change, and playlist replacement — ensuring the preloaded track always matches what `next()` would play.
+6. **Media Session keep-alive**: Even without preloading, PWAudio keeps `mediaSession.playbackState = "playing"` during track transitions so the browser continues treating the tab as an active media player.
+
+This feature does **not** provide gapless playback (the brief silence between tracks remains), but it ensures that the next track's data is available in cache before it's needed, preventing the network-fetch failures that kill background playback on mobile.
+
+### 7.11 Volume and playbackRate clamping
 
 Both `volume` and `playbackRate` are clamped to their valid ranges on write:
 

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { PWAudio } from "../PWAudio";
 import { ShuffleManager } from "../shuffle";
 
@@ -163,7 +163,7 @@ describe("ShuffleManager", () => {
 			manager.generate(5, 0);
 
 			const idx1 = manager.next(false); // 2nd shuffled
-			const idx2 = manager.next(false); // 3rd shuffled
+			manager.next(false); // 3rd shuffled
 
 			// Retreat back
 			const prev1 = manager.previous();
@@ -295,7 +295,6 @@ describe("Shuffle (PWAudio Integration)", () => {
 			player.shuffle = "on";
 
 			// next() should navigate to a different track
-			const startIndex = player.currentIndex;
 			await player.next();
 			const nextIndex = player.currentIndex;
 
@@ -343,9 +342,8 @@ describe("Shuffle (PWAudio Integration)", () => {
 			await player.next(); // 2nd shuffled track
 
 			// Now at the end of shuffle order, next() should do nothing
-			const indexBeforeNext = player.currentIndex;
 			await player.next();
-			// Index should remain the same (or close — shuffle exhausted means no-op)
+			// Index should remain valid
 			expect(player.currentIndex).toBeGreaterThanOrEqual(0);
 		});
 	});
@@ -355,10 +353,7 @@ describe("Shuffle (PWAudio Integration)", () => {
 			const player = createPlayerWithTracks();
 			player.shuffle = "on";
 
-			const startIndex = player.currentIndex;
-
 			await player.next(); // forward one
-			const afterNext = player.currentIndex;
 
 			await player.previous(); // back one
 

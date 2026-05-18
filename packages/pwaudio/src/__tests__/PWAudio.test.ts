@@ -123,22 +123,22 @@ describe("PWAudio", () => {
 			expect(handler).toHaveBeenCalledOnce();
 		});
 
-		it("clears endedState", () => {
+		it("clears ended", () => {
 			const player = new PWAudio({ src: "test.mp3" });
-			// endedState should be false initially
-			expect(player.endedState).toBe(false);
+			// ended should be false initially
+			expect(player.ended).toBe(false);
 		});
 	});
 
 	// ─── State matrix ───
 
 	describe("state matrix", () => {
-		it("initial state: playing=false, paused=false, stopped=true, endedState=false", () => {
+		it("initial state: playing=false, paused=false, stopped=true, ended=false", () => {
 			const player = new PWAudio();
 			expect(player.playing).toBe(false);
 			expect(player.paused).toBe(false);
 			expect(player.stopped).toBe(true);
-			expect(player.endedState).toBe(false);
+			expect(player.ended).toBe(false);
 		});
 
 		it("after stop(): paused=false, stopped=true", () => {

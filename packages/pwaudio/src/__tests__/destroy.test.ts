@@ -328,10 +328,10 @@ describe("destroy()", () => {
 			expect(player.stopped).toBe(true);
 		});
 
-		it("endedState returns false after destroy", () => {
+		it("ended returns false after destroy", () => {
 			const player = createPlayerWithTracks();
 			player.destroy();
-			expect(player.endedState).toBe(false);
+			expect(player.ended).toBe(false);
 		});
 
 		it("currentTime returns 0 after destroy", () => {

@@ -7,8 +7,13 @@ import type {
 	PlayerEvent,
 	PlayerEventHandlerMap,
 } from "./types";
-import { DEFAULTS, DESTROYED_ERROR_MESSAGE, NO_TRACK_LOADED_MESSAGE } from "./constants";
-import { clampVolume, clampPlaybackRate } from "./utils";
+import {
+	DEFAULTS,
+	DESTROYED_ERROR_MESSAGE,
+	NO_TRACK_LOADED_MESSAGE,
+	PRELOAD_THRESHOLD_SECONDS,
+} from "./constants";
+import { clampVolume, clampPlaybackRate, isFiniteDuration } from "./utils";
 import { EventManager } from "./events";
 import { ShuffleManager } from "./shuffle";
 import { MediaSessionManager } from "./media-session";
@@ -38,6 +43,52 @@ export class PWAudio {
 	#lastLoadedTrack: Track | null = null;
 	#lastLoadedIndex: number = -1;
 
+	// ─── Preloading ───
+
+	/**
+	 * Secondary audio element used exclusively to preload the next track's
+	 * data into the browser's HTTP cache. When the current track is within
+	 * `#preloadThreshold` seconds of ending, this element's `src` is set to
+	 * the next track's URL with `preload="auto"`, causing the browser to fetch
+	 * the full audio file. When the player later advances to that track via
+	 * `#loadTrack()`, the browser can serve the data from its cache instead of
+	 * making a new network request — critical on mobile devices where the
+	 * screen is off and background network requests are throttled or killed.
+	 *
+	 * Created lazily to avoid capturing it in test mocks that intercept Audio()
+	 * construction to capture the main audio element.
+	 */
+	#preloadAudio: HTMLAudioElement | null = null;
+
+	/**
+	 * Seconds before the end of the current track to start preloading the next.
+	 * Set to 0 or less to disable preloading. Default: 20.
+	 */
+	#preloadThreshold: number = PRELOAD_THRESHOLD_SECONDS;
+
+	/**
+	 * Get or create the preload audio element.
+	 */
+	#getPreloadAudio(): HTMLAudioElement {
+		if (!this.#preloadAudio) {
+			this.#preloadAudio = new Audio();
+			this.#preloadAudio.preload = "auto";
+		}
+		return this.#preloadAudio;
+	}
+
+	/**
+	 * Whether the preload element has been started for the current track.
+	 * Reset on track change so it doesn't re-trigger for the same track.
+	 */
+	#preloadStarted: boolean = false;
+
+	/**
+	 * The src URL currently loaded (or loading) on #preloadAudio.
+	 * Used to avoid redundant preload kicks when timeupdate fires rapidly.
+	 */
+	#preloadedSrc: string = "";
+
 	constructor(options?: PWAudioOptions) {
 		this.#audio = new Audio();
 
@@ -58,6 +109,9 @@ export class PWAudio {
 
 		// Set preservesPitch (with webkit prefix) — see Plan 09
 		this.#applyPreservesPitch(true);
+
+		// Preload threshold — seconds before track end to start fetching the next track
+		this.#preloadThreshold = options?.preloadThreshold ?? PRELOAD_THRESHOLD_SECONDS;
 
 		// Initialize event system — #target is the internal dispatch target
 		this.#events = new EventManager(this.#target);
@@ -99,6 +153,9 @@ export class PWAudio {
 
 		// Throttled position state update on timeupdate
 		this.#audio.addEventListener("timeupdate", this.#handleTimeUpdate);
+
+		// Preload next track when approaching end of current track
+		this.#audio.addEventListener("timeupdate", this.#handlePreload);
 
 		// Full position state update on ratechange
 		this.#audio.addEventListener("ratechange", this.#handleRateChange);
@@ -366,6 +423,10 @@ export class PWAudio {
 		this.#endedState = false;
 		this.#shuffleManager.clear(); // reset stale shuffle state
 
+		// Reset preload state — single-track mode, nothing to preload
+		this.#preloadStarted = false;
+		this.#preloadedSrc = "";
+
 		// Snapshot track info for #handleError
 		this.#lastLoadedTrack = track;
 		this.#lastLoadedIndex = this.#currentIndex;
@@ -410,6 +471,10 @@ export class PWAudio {
 		const currentSrc = this.#currentTrack()?.src;
 
 		this.#tracks = [...newTracks];
+
+		// Reset preload state — playlist changed, next track may be different
+		this.#preloadStarted = false;
+		this.#preloadedSrc = "";
 
 		if (newTracks.length === 0) {
 			this.#currentIndex = -1;
@@ -477,6 +542,9 @@ export class PWAudio {
 	set repeat(mode: RepeatMode) {
 		this.#throwIfDestroyed();
 		this.#repeat = mode;
+		// Reset preload state — the next track may have changed (e.g. repeat mode changed from off to all)
+		this.#preloadStarted = false;
+		this.#preloadedSrc = "";
 	}
 
 	// ─── Shuffle (basic getter/setter — logic in Plan 05) ───
@@ -491,6 +559,10 @@ export class PWAudio {
 		if (this.#shuffle === mode) return; // no change
 
 		this.#shuffle = mode;
+
+		// Reset preload state — the next track may have changed
+		this.#preloadStarted = false;
+		this.#preloadedSrc = "";
 
 		if (mode === "on") {
 			// Generate shuffle order with current track at position 0
@@ -511,6 +583,28 @@ export class PWAudio {
 	set previousRestartThreshold(seconds: number) {
 		this.#throwIfDestroyed();
 		this.#previousRestartThreshold = seconds;
+	}
+
+	// ─── Next-track preloading ───
+
+	/**
+	 * Seconds before the end of the current track to start preloading the next.
+	 * Set to 0 or less to disable preloading. Default: 20.
+	 *
+	 * Preloading starts fetching the next track's audio data into the browser
+	 * cache when the current track is within this many seconds of ending. This
+	 * is critical on mobile devices where the browser throttles background tabs —
+	 * without preloading, the network fetch for the next track may be killed,
+	 * producing `MEDIA_ERR_SRC_NOT_SUPPORTED` ("Format error") and stopping playback.
+	 */
+	get preloadThreshold(): number {
+		if (this.#destroyed) return 0;
+		return this.#preloadThreshold;
+	}
+
+	set preloadThreshold(seconds: number) {
+		this.#throwIfDestroyed();
+		this.#preloadThreshold = seconds;
 	}
 
 	// ─── Media Session ──
@@ -784,6 +878,11 @@ export class PWAudio {
 
 		this.#audio.src = track.src;
 		this.#audio.preload = this.#preloadStrategy;
+
+		// Reset preload state for the new track — we may need to preload
+		// the track after this one once the current track approaches its end.
+		this.#preloadStarted = false;
+
 		this.#updateMediaSession();
 	}
 
@@ -866,6 +965,69 @@ export class PWAudio {
 		}
 	};
 
+	/**
+	 * Handles timeupdate — preloads the next track when approaching end of the current track.
+	 *
+	 * On mobile devices (especially Chrome on Android), when the screen is off the browser
+	 * aggressively throttles background tabs. If a track ends and the player needs to fetch
+	 * the next track's audio data, the network request may be killed, producing
+	 * `MEDIA_ERR_SRC_NOT_SUPPORTED` ("Format error"). By preloading the next track into the
+	 * browser's HTTP cache before the current track ends, we ensure the data is available
+	 * locally so the transition happens without a network request.
+	 */
+	#handlePreload = (): void => {
+		if (this.#destroyed || this.#preloadThreshold <= 0) return;
+
+		// Don't preload if stopped, no tracks, or already preloaded for this track
+		if (this.#stopped || this.#tracks.length === 0 || this.#preloadStarted) return;
+
+		const duration = this.#audio.duration;
+		const currentTime = this.#audio.currentTime;
+
+		// Need a finite duration and current time to determine proximity to end
+		if (!isFiniteDuration(duration) || !isFiniteDuration(currentTime)) return;
+
+		// Only preload if we're within the threshold of the end
+		const remaining = duration - currentTime;
+		if (remaining > this.#preloadThreshold) return;
+
+		// Determine the next track
+		let nextIndex: number;
+		if (this.#repeat === "one") {
+			// repeat=one replays the current track, no need to preload a different track
+			return;
+		} else if (this.#shuffle === "on") {
+			const shuffledNext = this.#shuffleManager.peekNext(this.#repeat === "all");
+			if (shuffledNext === -1) return; // no next track available
+			nextIndex = shuffledNext;
+		} else {
+			// Ordered playback
+			nextIndex = this.#currentIndex + 1;
+			if (nextIndex >= this.#tracks.length) {
+				if (this.#repeat === "all") {
+					nextIndex = 0;
+				} else {
+					return; // repeat=off, at the end — no next track to preload
+				}
+			}
+		}
+
+		const nextTrack = this.#tracks[nextIndex];
+		if (!nextTrack) return;
+
+		// Don't preload if it's the same src (already loaded on the main element)
+		if (nextTrack.src === this.#audio.src) return;
+
+		// Don't preload if we've already preloaded this exact src
+		if (nextTrack.src === this.#preloadedSrc) return;
+
+		// Start preloading
+		const preloadAudio = this.#getPreloadAudio();
+		this.#preloadStarted = true;
+		this.#preloadedSrc = nextTrack.src;
+		preloadAudio.src = nextTrack.src;
+	};
+
 	/** Handles ratechange — full position state update. */
 	#handleRateChange = (): void => {
 		if (!this.#destroyed) {
@@ -906,6 +1068,7 @@ export class PWAudio {
 		this.#audio.removeEventListener("ended", this.#handleEnded);
 		this.#audio.removeEventListener("error", this.#handleError);
 		this.#audio.removeEventListener("timeupdate", this.#handleTimeUpdate);
+		this.#audio.removeEventListener("timeupdate", this.#handlePreload);
 		this.#audio.removeEventListener("ratechange", this.#handleRateChange);
 		this.#audio.removeEventListener("play", this.#handlePlayState);
 		this.#audio.removeEventListener("pause", this.#handlePauseState);
@@ -920,10 +1083,17 @@ export class PWAudio {
 		this.#audio.src = "";
 		this.#audio.load();
 
-		// 5. Remove src attribute
+		// 5. Also abort any preload request and clean up the preload element
+		this.#preloadAudio?.pause();
+		if (this.#preloadAudio) {
+			this.#preloadAudio.src = "";
+			this.#preloadAudio.removeAttribute("src");
+		}
+
+		// 6. Remove src attribute
 		this.#audio.removeAttribute("src");
 
-		// 6. Set destroyed flag
+		// 7. Set destroyed flag
 		this.#destroyed = true;
 	}
 

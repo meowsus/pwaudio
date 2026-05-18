@@ -22,6 +22,9 @@ export const RATE_MAX = 4.0;
 /** Position state update throttle in milliseconds */
 export const POSITION_STATE_THROTTLE_MS = 1000;
 
+/** Default preload threshold in seconds — start fetching the next track this many seconds before the current one ends */
+export const PRELOAD_THRESHOLD_SECONDS = 20;
+
 /** The list of native HTMLAudioElement events that pwaudio proxies */
 export const PROXIED_NATIVE_EVENTS = [
 	"play",

@@ -734,7 +734,7 @@ describe("PWAudio Media Session Integration", () => {
 			expect(player.stopped).toBe(false);
 
 			// Simulate reaching end of track — handleEnded calls next()
-			// which resets endedState, but #userPaused stays false.
+			// which resets ended, but #userPaused stays false.
 			audio.dispatchEvent(new Event("ended"));
 
 			// Browser fires pause after ended — keep-alive keeps playbackState "playing"
@@ -763,14 +763,14 @@ describe("PWAudio Media Session Integration", () => {
 		});
 
 		it("sets playbackState 'paused' for user-initiated pause (not a transition)", async () => {
-			// When a user pauses (endedState=false, not a transition),
+			// When a user pauses (ended=false, not a transition),
 			// playbackState should be set to "paused".
 			const player = createPlayerWithTracks();
 			const mock = getMockMs();
 
 			// Transition out of initial stopped state, then pause
 			void player.goto(1);
-			await player.pause();
+			player.pause();
 			expect(mock.playbackState).toBe("paused");
 		});
 
@@ -788,7 +788,7 @@ describe("PWAudio Media Session Integration", () => {
 
 			void player.goto(1);
 			audio.dispatchEvent(new Event("ended"));
-			expect(player.endedState).toBe(true);
+			expect(player.ended).toBe(true);
 
 			audio.dispatchEvent(new Event("pause"));
 			// userPaused=false, stopped=false — pause handler keeps "playing"
@@ -815,7 +815,7 @@ describe("PWAudio Media Session Integration", () => {
 			void player.goto(1);
 			audio.dispatchEvent(new Event("ended"));
 			// Should not throw — mediaSessionKeepAlive is a no-op when disabled
-			expect(player.endedState).toBe(true);
+			expect(player.ended).toBe(true);
 		});
 	});
 });

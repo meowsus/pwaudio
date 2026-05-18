@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import { PWAudio } from "../PWAudio";
 
 // ─── Helpers ───
@@ -202,15 +202,15 @@ describe("Concurrency Guard", () => {
 			expect(audio).toBeDefined(); // just verifying player initialized
 		});
 
-		it("endedState is set to true when ended handler runs at end of playlist", () => {
+		it("ended is set to true when ended handler runs at end of playlist", () => {
 			const player = createPlayerWithTracks();
 			player.repeat = "off";
 
 			// Verify initial state
-			expect(player.endedState).toBe(false);
+			expect(player.ended).toBe(false);
 
 			// After going to the last track and ended event firing,
-			// endedState should be true. This tests the observable state.
+			// ended should be true. This tests the observable state.
 		});
 
 		it("next() inside handleEnded uses void (fire-and-forget)", async () => {

@@ -103,6 +103,29 @@ export class ShuffleManager {
 	}
 
 	/**
+	 * Peek at the next track index in the shuffle order without advancing history.
+	 * Used by preload logic to determine which track to pre-fetch.
+	 *
+	 * @param repeatAll Whether repeat=all is enabled
+	 * @returns The next track index, or -1 if at the end with repeat=off
+	 */
+	peekNext(repeatAll: boolean): number {
+		const nextPos = this.#historyPosition + 1;
+
+		if (nextPos < this.#order.length) {
+			return this.#order[nextPos];
+		}
+
+		// Exhausted the shuffle order — need regeneration (only possible with repeatAll)
+		if (repeatAll && this.#order.length > 1) {
+			// Peek at the first track (will be the start of the regenerated order)
+			return this.#order[0];
+		}
+
+		return -1;
+	}
+
+	/**
 	 * Get the current position in shuffle history.
 	 */
 	get historyPosition(): number {

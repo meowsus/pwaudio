@@ -97,7 +97,7 @@ describe("Repeat", () => {
 			expect(player.currentIndex).toBe(2);
 		});
 
-		it("sets endedState true when at last track and ended fires", () => {
+		it("sets ended true when at last track and ended fires", () => {
 			installAudioCapture();
 			try {
 				const player = new PWAudio({
@@ -112,7 +112,7 @@ describe("Repeat", () => {
 				// Dispatch ended event
 				audioEl.dispatchEvent(new Event("ended"));
 
-				expect(player.endedState).toBe(true);
+				expect(player.ended).toBe(true);
 				expect(player.currentIndex).toBe(2); // stays at last track
 			} finally {
 				restoreAudio();
@@ -133,8 +133,8 @@ describe("Repeat", () => {
 				// Dispatch ended on first track
 				audioEl.dispatchEvent(new Event("ended"));
 
-				// Should clear endedState and advance
-				expect(player.endedState).toBe(false);
+				// Should clear ended and advance
+				expect(player.ended).toBe(false);
 			} finally {
 				restoreAudio();
 			}
@@ -155,7 +155,7 @@ describe("Repeat", () => {
 				audioEl.dispatchEvent(new Event("ended"));
 
 				expect(player.currentIndex).toBe(1); // stays at last track
-				expect(player.endedState).toBe(true);
+				expect(player.ended).toBe(true);
 			} finally {
 				restoreAudio();
 			}
@@ -185,13 +185,13 @@ describe("Repeat", () => {
 
 				// Should stay on same track
 				expect(player.currentIndex).toBe(0);
-				expect(player.endedState).toBe(false);
+				expect(player.ended).toBe(false);
 			} finally {
 				restoreAudio();
 			}
 		});
 
-		it("clears endedState and restarts when on non-last track", () => {
+		it("clears ended and restarts when on non-last track", () => {
 			installAudioCapture();
 			try {
 				const player = new PWAudio({
@@ -206,9 +206,9 @@ describe("Repeat", () => {
 				// Dispatch ended event
 				audioEl.dispatchEvent(new Event("ended"));
 
-				// Should stay on track B, with endedState cleared
+				// Should stay on track B, with ended cleared
 				expect(player.currentIndex).toBe(1);
-				expect(player.endedState).toBe(false);
+				expect(player.ended).toBe(false);
 			} finally {
 				restoreAudio();
 			}
@@ -265,7 +265,7 @@ describe("Repeat", () => {
 				audioEl.dispatchEvent(new Event("ended"));
 
 				expect(player.currentIndex).toBe(0);
-				expect(player.endedState).toBe(false);
+				expect(player.ended).toBe(false);
 			} finally {
 				restoreAudio();
 			}
@@ -282,14 +282,14 @@ describe("Repeat", () => {
 			expect(player.currentIndex).toBe(2);
 		});
 
-		it("clears endedState on advancement via next()", async () => {
+		it("clears ended on advancement via next()", async () => {
 			const player = createPlayerWithTracks();
 			player.repeat = "all";
 
 			await player.goto(2);
 			await player.next();
 
-			expect(player.endedState).toBe(false);
+			expect(player.ended).toBe(false);
 		});
 	});
 

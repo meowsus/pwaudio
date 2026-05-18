@@ -133,4 +133,16 @@ export interface PWAudioOptions {
 	mediaSessionEnabled?: boolean;
 	/** Threshold in seconds for previous() restart behavior. Default: 3 */
 	previousRestartThreshold?: number;
+	/**
+	 * Seconds before the end of a track to start preloading the next track.
+	 * Preloading fetches the next track's audio data into the browser cache so
+	 * that when the current track ends, the transition to the next track can
+	 * happen without a network request. This is critical on mobile devices
+	 * where the browser throttles background tabs — without preloading, the
+	 * network fetch for the next track may be killed, producing a
+	 * MEDIA_ERR_SRC_NOT_SUPPORTED ("Format error") and stopping playback.
+	 *
+	 * Set to 0 or less to disable preloading. Default: 20.
+	 */
+	preloadThreshold?: number;
 }
