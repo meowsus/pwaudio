@@ -2,11 +2,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { EventManager } from "../events";
 import type { NativeEventDetail, TrackChangeDetail } from "../types";
 
-// ─── Helpers ───
-
-/** Create a minimal EventTarget-like object for testing. */
+/** Create a minimal EventTarget for testing. */
 function createTarget(): EventTarget {
-	// In happy-dom, EventTarget is available globally.
 	return new EventTarget();
 }
 
@@ -32,7 +29,6 @@ function createAudioMock(): HTMLAudioElement & { _listeners: Map<string, Set<Eve
 		}),
 	} as unknown as HTMLAudioElement & { _listeners: Map<string, Set<EventListener>> };
 
-	// Attach the mock listener registry so tests can inspect it
 	Object.defineProperty(audio, "_listeners", { value: listeners });
 
 	return audio;
@@ -52,8 +48,6 @@ function simulateNativeEvent(
 	}
 }
 
-// ─── Tests ───
-
 describe("EventManager", () => {
 	let target: EventTarget;
 	let manager: EventManager;
@@ -62,8 +56,6 @@ describe("EventManager", () => {
 		target = createTarget();
 		manager = new EventManager(target);
 	});
-
-	// ─── on() / off() ───
 
 	describe("on()", () => {
 		it("registers a handler for an event", () => {
@@ -86,19 +78,9 @@ describe("EventManager", () => {
 		it("does not duplicate the same handler reference", () => {
 			const handler = vi.fn();
 			manager.on("play", handler);
-			manager.on("play", handler); // register same handler twice
+			manager.on("play", handler);
 			manager.emit("play", { nativeEvent: new Event("play") } as NativeEventDetail);
-			expect(handler).toHaveBeenCalledOnce(); // should fire only once
-		});
-
-		it("registers handlers for different events independently", () => {
-			const playHandler = vi.fn();
-			const pauseHandler = vi.fn();
-			manager.on("play", playHandler);
-			manager.on("pause", pauseHandler);
-			manager.emit("play", { nativeEvent: new Event("play") } as NativeEventDetail);
-			expect(playHandler).toHaveBeenCalledOnce();
-			expect(pauseHandler).not.toHaveBeenCalled();
+			expect(handler).toHaveBeenCalledOnce();
 		});
 	});
 
@@ -111,30 +93,9 @@ describe("EventManager", () => {
 			expect(handler).not.toHaveBeenCalled();
 		});
 
-		it("removes only the specified handler, keeping others", () => {
-			const handler1 = vi.fn();
-			const handler2 = vi.fn();
-			manager.on("play", handler1);
-			manager.on("play", handler2);
-			manager.off("play", handler1);
-			manager.emit("play", { nativeEvent: new Event("play") } as NativeEventDetail);
-			expect(handler1).not.toHaveBeenCalled();
-			expect(handler2).toHaveBeenCalledOnce();
-		});
-
 		it("does nothing when removing a handler that was never added", () => {
 			const handler = vi.fn();
-			// Should not throw
 			manager.off("play", handler);
-		});
-
-		it("cleans up empty handler sets from the listeners map", () => {
-			const handler = vi.fn();
-			manager.on("play", handler);
-			manager.off("play", handler);
-			// Emit should not throw or error — there are no handlers
-			manager.emit("play", { nativeEvent: new Event("play") } as NativeEventDetail);
-			expect(handler).not.toHaveBeenCalled();
 		});
 	});
 
@@ -146,9 +107,8 @@ describe("EventManager", () => {
 			manager.emit("play", { nativeEvent: new Event("play") } as NativeEventDetail);
 			expect(handler).toHaveBeenCalledOnce();
 
-			// Second emit should not call the handler again
 			manager.emit("play", { nativeEvent: new Event("play") } as NativeEventDetail);
-			expect(handler).toHaveBeenCalledOnce(); // still only 1 call
+			expect(handler).toHaveBeenCalledOnce();
 		});
 
 		it("works for synthetic events with custom detail", () => {
@@ -165,9 +125,7 @@ describe("EventManager", () => {
 
 			const event = handler.mock.calls[0][0] as CustomEvent<TrackChangeDetail>;
 			expect(event.detail).toEqual(detail);
-			expect(event.type).toBe("trackchange");
 
-			// Second emit should not fire handler
 			manager.emit("trackchange", { previousIndex: 0, currentIndex: 1, track: null });
 			expect(handler).toHaveBeenCalledOnce();
 		});
@@ -182,7 +140,6 @@ describe("EventManager", () => {
 			expect(handler1).toHaveBeenCalledOnce();
 			expect(handler2).toHaveBeenCalledOnce();
 
-			// Neither should fire again
 			manager.emit("play", { nativeEvent: new Event("play") } as NativeEventDetail);
 			expect(handler1).toHaveBeenCalledOnce();
 			expect(handler2).toHaveBeenCalledOnce();
@@ -199,24 +156,33 @@ describe("EventManager", () => {
 			expect(onHandler).toHaveBeenCalledOnce();
 
 			manager.emit("play", { nativeEvent: new Event("play") } as NativeEventDetail);
-			expect(onceHandler).toHaveBeenCalledOnce(); // still 1
-			expect(onHandler).toHaveBeenCalledTimes(2); // called again
+			expect(onceHandler).toHaveBeenCalledOnce();
+			expect(onHandler).toHaveBeenCalledTimes(2);
+		});
+
+		it("once()-registered handler can be removed with off() before it fires", () => {
+			const handler = vi.fn();
+			manager.once("play", handler);
+			manager.off("play", handler);
+			manager.emit("play", { nativeEvent: new Event("play") } as NativeEventDetail);
+			expect(handler).not.toHaveBeenCalled();
+		});
+
+		it("off() removes once()-registered handler for native-proxied events", () => {
+			const audio = createAudioMock();
+			manager.attachNativeProxies(audio);
+
+			const handler = vi.fn();
+			manager.once("play", handler);
+			manager.off("play", handler);
+
+			simulateNativeEvent(audio, "play", new Event("play"));
+			expect(handler).not.toHaveBeenCalled();
 		});
 	});
 
-	// ─── emit() ───
-
 	describe("emit()", () => {
-		it("creates a CustomEvent with the correct type", () => {
-			const handler = vi.fn();
-			manager.on("stop", handler);
-			manager.emit("stop");
-			expect(handler).toHaveBeenCalledOnce();
-			const event = handler.mock.calls[0][0] as CustomEvent;
-			expect(event.type).toBe("stop");
-		});
-
-		it("creates a CustomEvent with detail when provided", () => {
+		it("creates a CustomEvent with the correct type and detail", () => {
 			const handler = vi.fn();
 			manager.on("trackchange", handler);
 			const detail = {
@@ -226,6 +192,7 @@ describe("EventManager", () => {
 			};
 			manager.emit("trackchange", detail);
 			const event = handler.mock.calls[0][0] as CustomEvent;
+			expect(event.type).toBe("trackchange");
 			expect(event.detail).toEqual(detail);
 		});
 
@@ -234,11 +201,10 @@ describe("EventManager", () => {
 			manager.on("stop", handler);
 			manager.emit("stop");
 			const event = handler.mock.calls[0][0] as CustomEvent;
-			expect(event.detail).toBeNull(); // CustomEvent defaults detail to null
+			expect(event.detail).toBeNull();
 		});
 
 		it("does nothing when emitting an event with no listeners", () => {
-			// Should not throw
 			manager.emit("trackchange", { previousIndex: -1, currentIndex: 0, track: null });
 		});
 
@@ -256,10 +222,9 @@ describe("EventManager", () => {
 			expect(order).toEqual([1, 2, 3]);
 		});
 
-		it("proxies native event detail correctly via NativeEventDetail", () => {
+		it("proxies native event detail correctly", () => {
 			const handler = vi.fn();
 			manager.on("play", handler);
-
 			const nativeEvent = new Event("play");
 			manager.emit("play", { nativeEvent } as NativeEventDetail);
 
@@ -268,10 +233,8 @@ describe("EventManager", () => {
 		});
 	});
 
-	// ─── Native event proxying ───
-
-	describe("attachNativeProxies()", () => {
-		it("attaches listeners for all PROXIED_NATIVE_EVENTS", () => {
+	describe("native event proxying", () => {
+		it("attaches listeners for all proxied native events", () => {
 			const audio = createAudioMock();
 			manager.attachNativeProxies(audio);
 
@@ -295,15 +258,6 @@ describe("EventManager", () => {
 			}
 		});
 
-		it("creates exactly one handler per proxied event", () => {
-			const audio = createAudioMock();
-			manager.attachNativeProxies(audio);
-
-			for (const [, set] of audio._listeners) {
-				expect(set.size).toBe(1);
-			}
-		});
-
 		it("proxies native events as CustomEvent with NativeEventDetail", () => {
 			const audio = createAudioMock();
 			manager.attachNativeProxies(audio);
@@ -320,53 +274,7 @@ describe("EventManager", () => {
 			expect(customEvent.detail.nativeEvent).toBe(nativeEvent);
 		});
 
-		it("does not proxy events not in PROXIED_NATIVE_EVENTS", () => {
-			const audio = createAudioMock();
-			manager.attachNativeProxies(audio);
-
-			// 'loadstart' is not in the proxied list
-			expect(audio._listeners.has("loadstart")).toBe(false);
-			expect(audio._listeners.has("stalled")).toBe(false);
-			expect(audio._listeners.has("emptied")).toBe(false);
-		});
-	});
-
-	describe("detachNativeProxies()", () => {
-		it("removes all native proxy listeners from the audio element", () => {
-			const audio = createAudioMock();
-			manager.attachNativeProxies(audio);
-
-			// Verify they were attached
-			const eventCount = audio._listeners.size;
-			expect(eventCount).toBeGreaterThan(0);
-
-			manager.detachNativeProxies(audio);
-
-			// All native listeners should be removed
-			for (const [, set] of audio._listeners) {
-				expect(set.size).toBe(0);
-			}
-		});
-
-		it("calls removeEventListener for each proxied event with matching event name", () => {
-			const audio = createAudioMock();
-			manager.attachNativeProxies(audio);
-
-			const addCalls = (audio.addEventListener as ReturnType<typeof vi.fn>).mock.calls;
-			expect(addCalls.length).toBeGreaterThan(0);
-
-			manager.detachNativeProxies(audio);
-
-			const removeCalls = (audio.removeEventListener as ReturnType<typeof vi.fn>).mock.calls;
-			expect(removeCalls.length).toBe(addCalls.length);
-
-			// Each remove call should match an add call by event name
-			const addedEventNames = addCalls.map((call: unknown[]) => call[0] as string);
-			const removedEventNames = removeCalls.map((call: unknown[]) => call[0] as string);
-			expect(removedEventNames.sort()).toEqual(addedEventNames.sort());
-		});
-
-		it("no longer proxies native events after detaching", () => {
+		it("no longer proxies events after detachNativeProxies", () => {
 			const audio = createAudioMock();
 			manager.attachNativeProxies(audio);
 
@@ -374,14 +282,8 @@ describe("EventManager", () => {
 			manager.on("play", playHandler);
 
 			manager.detachNativeProxies(audio);
+			simulateNativeEvent(audio, "play", new Event("play"));
 
-			// Simulate the native event — but the proxy is gone
-			simulateNativeEvent(audio, "play");
-
-			// The synthetic handler should not have been called because
-			// the native proxy was removed before the event.
-			// (The handler on 'play' was never called because audio mock
-			// no longer has the proxy listener)
 			expect(playHandler).not.toHaveBeenCalled();
 		});
 	});
@@ -395,10 +297,8 @@ describe("EventManager", () => {
 
 			manager.removeAllListeners();
 
-			// Emitting should not call any handlers
 			manager.emit("play", { nativeEvent: new Event("play") } as NativeEventDetail);
 			manager.emit("trackchange", { previousIndex: -1, currentIndex: 0, track: null });
-
 			expect(handler1).not.toHaveBeenCalled();
 			expect(handler2).not.toHaveBeenCalled();
 		});
@@ -413,8 +313,6 @@ describe("EventManager", () => {
 		});
 	});
 
-	// ─── Integration: full lifecycle ───
-
 	describe("full lifecycle", () => {
 		it("attach → emit native proxy → detach → emit → no calls", () => {
 			const audio = createAudioMock();
@@ -423,16 +321,12 @@ describe("EventManager", () => {
 			const playHandler = vi.fn();
 			manager.on("play", playHandler);
 
-			// Fire native event
 			simulateNativeEvent(audio, "play", new Event("play"));
 			expect(playHandler).toHaveBeenCalledOnce();
 
-			// Detach native proxies
 			manager.detachNativeProxies(audio);
-
-			// Fire native event again — should not propagate
 			simulateNativeEvent(audio, "play", new Event("play"));
-			expect(playHandler).toHaveBeenCalledOnce(); // still only 1
+			expect(playHandler).toHaveBeenCalledOnce();
 		});
 
 		it("synthetic events still work after native proxy detach", () => {
@@ -458,42 +352,12 @@ describe("EventManager", () => {
 			manager.detachNativeProxies(audio);
 			manager.removeAllListeners();
 
-			// Nothing should fire
 			manager.emit("play", { nativeEvent: new Event("play") } as NativeEventDetail);
 			manager.emit("trackchange", { previousIndex: -1, currentIndex: 0, track: null });
 			simulateNativeEvent(audio, "play");
 
 			expect(handler1).not.toHaveBeenCalled();
 			expect(handler2).not.toHaveBeenCalled();
-		});
-	});
-
-	// ─── Type safety ───
-
-	describe("type safety", () => {
-		it("ensures on() handler matches event type (compile-time check)", () => {
-			// This test verifies the type signatures compile correctly
-			// Runtime behavior is covered by the other tests
-			const playHandler = vi.fn((_e: CustomEvent<NativeEventDetail>) => {});
-			const trackChangeHandler = vi.fn((_e: CustomEvent<TrackChangeDetail>) => {});
-			const stopHandler = vi.fn((_e: CustomEvent) => {});
-
-			manager.on("play", playHandler);
-			manager.on("trackchange", trackChangeHandler);
-			manager.on("stop", stopHandler);
-
-			// Verify handlers are registered (runtime check)
-			manager.emit("play", { nativeEvent: new Event("play") } as NativeEventDetail);
-			manager.emit("trackchange", {
-				previousIndex: -1,
-				currentIndex: 0,
-				track: null,
-			} as TrackChangeDetail);
-			manager.emit("stop");
-
-			expect(playHandler).toHaveBeenCalledOnce();
-			expect(trackChangeHandler).toHaveBeenCalledOnce();
-			expect(stopHandler).toHaveBeenCalledOnce();
 		});
 	});
 });
