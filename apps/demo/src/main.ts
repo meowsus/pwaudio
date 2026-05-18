@@ -22,7 +22,9 @@ void navigator.storage.persist().then((granted) => {
 	}
 });
 
-const player = new PWAudio("https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3");
+const player = new PWAudio({
+	src: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3",
+});
 
 const playBtn = document.getElementById("play");
 const pauseBtn = document.getElementById("pause");
