@@ -80,6 +80,52 @@ export class PWAudio {
 	}
 
 	/**
+	 * Revoke the pre-fetched blob URL, if any.
+	 * Called on lifecycle changes (destroy, new track, mode changes) to
+	 * prevent memory leaks from unreferenced blob:// URLs.
+	 */
+	#revokeBlobUrl(): void {
+		if (this.#nextTrackBlobUrl) {
+			URL.revokeObjectURL(this.#nextTrackBlobUrl);
+			this.#nextTrackBlobUrl = null;
+		}
+		this.#nextTrackBlobIndex = -1;
+	}
+
+	/**
+	 * Fetch the next track's audio data as a Blob and create an object URL
+	 * for synchronous consumption in #advanceToNextTrackSync.
+	 *
+	 * On success: stores the blob URL in #nextTrackBlobUrl for the sync handoff.
+	 * On failure: falls back to setting the preloadAudio element's src to warm
+	 * the HTTP cache (the traditional approach).
+	 */
+	async #fetchNextTrackAsBlob(track: Track, index: number): Promise<void> {
+		if (this.#destroyed) return;
+
+		try {
+			const response = await fetch(track.src);
+			if (!response.ok) throw new Error(`HTTP ${response.status}`);
+			const blob = await response.blob();
+			if (this.#destroyed) return; // re-check after await
+
+			// Revoke any previous blob URL before creating a new one
+			this.#revokeBlobUrl();
+
+			this.#nextTrackBlobUrl = URL.createObjectURL(blob);
+			this.#nextTrackBlobIndex = index;
+		} catch {
+			// Blob fetch failed — fall back to HTTP cache warming via
+			// the preloadAudio element. The async path (next()/play())
+			// will be used in #handleEnded if no blob URL is available.
+			if (!this.#destroyed) {
+				const preloadAudio = this.#getPreloadAudio();
+				preloadAudio.src = track.src;
+			}
+		}
+	}
+
+	/**
 	 * Whether the preload element has been started for the current track.
 	 * Reset on track change so it doesn't re-trigger for the same track.
 	 */
@@ -90,6 +136,25 @@ export class PWAudio {
 	 * Used to avoid redundant preload kicks when timeupdate fires rapidly.
 	 */
 	#preloadedSrc: string = "";
+
+	// ─── Blob prefetch (next track fetched as blob for sync handoff) ───
+
+	/**
+	 * Object URL for the next track's audio data, fetched as a Blob during
+	 * #handlePreload. Consumed synchronously in #advanceToNextTrackSync so the
+	 * src can be set and play() called without a network request — critical on
+	 * mobile where background network requests are killed by the browser.
+	 *
+	 * Lifecycle: created in #fetchNextTrackAsBlob, consumed (set to null) in
+	 * #advanceToNextTrackSync, or cleaned up via #revokeBlobUrl().
+	 */
+	#nextTrackBlobUrl: string | null = null;
+
+	/**
+	 * The playlist index that #nextTrackBlobUrl corresponds to.
+	 * Validated in #advanceToNextTrackSync before consuming the blob URL.
+	 */
+	#nextTrackBlobIndex: number = -1;
 
 	// ─── Background playback resilience ───
 
@@ -500,6 +565,8 @@ export class PWAudio {
 		// Reset preload state — single-track mode, nothing to preload
 		this.#preloadStarted = false;
 		this.#preloadedSrc = "";
+		// Revoke any pre-fetched blob URL — single-track mode
+		this.#revokeBlobUrl();
 
 		// Snapshot track info for #handleError
 		this.#lastLoadedTrack = track;
@@ -549,6 +616,8 @@ export class PWAudio {
 		// Reset preload state — playlist changed, next track may be different
 		this.#preloadStarted = false;
 		this.#preloadedSrc = "";
+		// Revoke any pre-fetched blob URL — next track may have changed
+		this.#revokeBlobUrl();
 
 		if (newTracks.length === 0) {
 			this.#currentIndex = -1;
@@ -619,6 +688,8 @@ export class PWAudio {
 		// Reset preload state — the next track may have changed (e.g. repeat mode changed from off to all)
 		this.#preloadStarted = false;
 		this.#preloadedSrc = "";
+		// Revoke any pre-fetched blob URL — next track may have changed
+		this.#revokeBlobUrl();
 	}
 
 	// ─── Shuffle (basic getter/setter — logic in Plan 05) ───
@@ -637,6 +708,8 @@ export class PWAudio {
 		// Reset preload state — the next track may have changed
 		this.#preloadStarted = false;
 		this.#preloadedSrc = "";
+		// Revoke any pre-fetched blob URL — next track may have changed
+		this.#revokeBlobUrl();
 
 		if (mode === "on") {
 			// Generate shuffle order with current track at position 0
@@ -746,8 +819,120 @@ export class PWAudio {
 		this.#events.off(event, handler);
 	}
 
+	// ─── Synchronous track transition ───
+
+	/**
+	 * Advance to the next track synchronously within the ended event handler,
+	 * preserving Chrome's gesture token so play() is not rejected when the
+	 * tab is backgrounded.
+	 *
+	 * Uses a pre-fetched blob URL (if available) to avoid network requests
+	 * that would be killed on backgrounded mobile tabs. Falls back to the
+	 * track's original src for the async path (next()/play()).
+	 *
+	 * Must only be called from #handleEnded or other synchronous event handlers
+	 * where the browser's gesture token is still active on the call stack.
+	 */
+	#advanceToNextTrackSync(generation: number): void {
+		if (this.#destroyed) return;
+
+		// Compute next index (same logic as next())
+		let nextIndex: number;
+
+		if (this.#shuffle === "on") {
+			const shuffledNext = this.#shuffleManager.next(this.#repeat === "all");
+			if (shuffledNext === -1) {
+				if (this.#repeat === "all") {
+					this.#shuffleManager.generate(this.#tracks.length, this.#currentIndex);
+					nextIndex = this.#shuffleManager.next(true);
+					if (nextIndex === -1) return;
+				} else {
+					return;
+				}
+			} else {
+				nextIndex = shuffledNext;
+			}
+		} else {
+			nextIndex = this.#currentIndex + 1;
+			if (nextIndex >= this.#tracks.length) {
+				if (this.#repeat === "all") {
+					nextIndex = 0;
+				} else {
+					return;
+				}
+			}
+		}
+
+		// Stale generation guard — another operation superseded us
+		if (this.#playGeneration !== generation) return;
+
+		const previousIndex = this.#currentIndex;
+		this.#currentIndex = nextIndex;
+		this.#endedState = false;
+		this.#stopped = false;
+		this.#userPaused = false;
+		this.#playGeneration++;
+
+		// Keep media session alive during transition
+		this.#mediaSessionKeepAlive();
+
+		const track = this.#currentTrack();
+		if (!track) return;
+
+		// Snapshot for error handler
+		this.#lastLoadedTrack = track;
+		this.#lastLoadedIndex = this.#currentIndex;
+
+		// Use pre-fetched blob URL if available and still valid for this index
+		let src = track.src;
+		let usedBlob = false;
+		if (this.#nextTrackBlobUrl && this.#nextTrackBlobIndex === nextIndex) {
+			src = this.#nextTrackBlobUrl;
+			this.#nextTrackBlobUrl = null; // ownership transferred to audio element
+			this.#nextTrackBlobIndex = -1;
+			usedBlob = true;
+		}
+
+		// Set src synchronously, then call play() on the same call stack
+		this.#audio.src = src;
+		this.#audio.preload = this.#preloadStrategy;
+
+		// Reset preload state for the new track
+		this.#preloadStarted = false;
+
+		// Clean up blob URL if it wasn't consumed (belt-and-suspenders)
+		if (!usedBlob) {
+			this.#revokeBlobUrl();
+		}
+
+		// Update media session
+		this.#updateMediaSession();
+
+		// Emit trackchange event
+		this.#events.emit("trackchange", {
+			previousIndex,
+			currentIndex: this.#currentIndex,
+			track,
+		});
+
+		// Start/restart background playback protection
+		this.#startBackgroundPlaybackProtection();
+
+		// Call play() synchronously — no await. Preserves gesture token from
+		// the ended event that triggered this transition.
+		void this.#audio.play().catch(() => {});
+	}
+
 	// ─── Internal handlers ───
 
+	/**
+	 * Handle the ended event from HTMLAudioElement.
+	 *
+	 * Uses synchronous track transition (#advanceToNextTrackSync) instead of
+	 * async next()/play() to preserve Chrome's gesture token. On mobile,
+	 * calling play() asynchronously after the ended callback returns can
+	 * cause Chrome to reject the play() call, stopping playback.
+	 */
 	#handleEnded = (): void => {
 		// Stale ended event — no tracks loaded
 		if (this.#tracks.length === 0) return;
@@ -760,11 +945,12 @@ export class PWAudio {
 		// Capture generation to detect if another operation supersedes us
 		const generation = this.#playGeneration;
 
+		// repeat=one: restart current track from beginning
 		if (this.#repeat === "one") {
 			this.#endedState = false;
 			this.#audio.currentTime = 0;
 			this.#mediaSessionKeepAlive();
-			void this.play().catch(() => {}); // guarded by playGeneration
+			void this.#audio.play().catch(() => {});
 			return;
 		}
 
@@ -773,29 +959,24 @@ export class PWAudio {
 			this.#endedState = false;
 			this.#audio.currentTime = 0;
 			this.#mediaSessionKeepAlive();
-			void this.play().catch(() => {}); // guarded by playGeneration
+			void this.#audio.play().catch(() => {});
 			return;
 		}
 
-		if (this.#repeat === "all") {
+		// Advance to next track (repeat=all with multiple tracks,
+		// or playlist continues with more tracks)
+		if (
+			this.#repeat === "all" ||
+			this.#currentIndex < this.#tracks.length - 1 ||
+			this.#shuffle === "on"
+		) {
 			// If a new track was loaded since the ended event fired, don't advance
 			if (this.#playGeneration !== generation) return;
-			this.#mediaSessionKeepAlive();
-			void this.next().catch(() => {});
-			return;
-		}
-
-		// Not at the end — advance
-		if (this.#currentIndex < this.#tracks.length - 1 || this.#shuffle === "on") {
-			// If a new track was loaded since the ended event fired, don't advance
-			if (this.#playGeneration !== generation) return;
-			this.#mediaSessionKeepAlive();
-			void this.next().catch(() => {});
+			this.#advanceToNextTrackSync(generation);
 			return;
 		}
 
 		// repeat=off, at the end — stay in endedState
-		// Stop background playback protection since playback has ended
 		this.#stopBackgroundPlaybackProtection();
 	};
 
@@ -1129,11 +1310,16 @@ export class PWAudio {
 		// Don't preload if we've already preloaded this exact src
 		if (nextTrack.src === this.#preloadedSrc) return;
 
-		// Start preloading
-		const preloadAudio = this.#getPreloadAudio();
+		// Start preloading — two paths:
+		//   1. Synchronously set the preloadAudio element's src to warm the HTTP
+		//      cache (existing behavior, also serves as fallback if blob fetch fails).
+		//   2. Kick off an async blob fetch to get the full audio in memory for
+		//      synchronous handoff in #advanceToNextTrackSync.
 		this.#preloadStarted = true;
 		this.#preloadedSrc = nextTrack.src;
+		const preloadAudio = this.#getPreloadAudio();
 		preloadAudio.src = nextTrack.src;
+		void this.#fetchNextTrackAsBlob(nextTrack, nextIndex);
 	};
 
 	/** Handles ratechange — full position state update. */
@@ -1430,6 +1616,8 @@ export class PWAudio {
 			this.#preloadAudio.src = "";
 			this.#preloadAudio.removeAttribute("src");
 		}
+		// Revoke any pre-fetched blob URL
+		this.#revokeBlobUrl();
 
 		// 6. Remove src attribute
 		this.#audio.removeAttribute("src");
