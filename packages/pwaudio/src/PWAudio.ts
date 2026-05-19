@@ -213,6 +213,13 @@ export class PWAudio {
 	 */
 	#lastWatchdogTimestamp: number = 0;
 
+	/**
+	 * Timestamp of the last unexpected-pause recovery attempt.
+	 * Used to throttle resume attempts and prevent rapid play-pause loops
+	 * when Chrome repeatedly pauses background audio elements.
+	 */
+	#lastPauseRecoveryTime: number = 0;
+
 	constructor(options?: PWAudioOptions) {
 		this.#audio = new Audio();
 
@@ -1231,6 +1238,13 @@ export class PWAudio {
 	 *  playbackState = "playing" during track transitions (!#userPaused),
 	 *  we tell the browser this tab is still an active media player, which prevents
 	 *  throttling and keeps the lock-screen notification alive.
+	 *
+	 *  Additionally, if the pause is unexpected (not user-initiated, not stopped),
+	 *  Chrome may have paused the audio element due to background timeouts or
+	 *  OS-level battery optimization. We immediately attempt to resume playback
+	 *  rather than waiting for the watchdog timer, which may be throttled for
+	 *  background tabs. Recovery is throttled to once per second to prevent
+	 *  rapid play-pause loops.
 	 */
 	#handlePauseState = (): void => {
 		if (this.#destroyed || !this.#mediaSession.enabled) return;
@@ -1238,8 +1252,19 @@ export class PWAudio {
 		// During a track transition (user didn't pause — #userPaused is false),
 		// the audio element pauses between tracks. Keep playbackState = "playing"
 		// so the browser keeps the tab alive as an active media player.
+		// Additionally, if the pause was unexpected, immediately attempt to
+		// resume — Chrome may have paused the audio element as a background
+		// timeout but should allow play() to re-engage the audio pipeline.
 		if (!this.#stopped && !this.#userPaused) {
 			this.#mediaSession.setPlaybackState("playing");
+
+			// Unexpected pause: Chrome/OS paused us. Attempt recovery immediately
+			// (throttled to 1s to avoid rapid play-pause loops).
+			const now = Date.now();
+			if (now - this.#lastPauseRecoveryTime >= 1000) {
+				this.#lastPauseRecoveryTime = now;
+				void this.#audio.play().catch(() => {});
+			}
 		} else {
 			this.#mediaSession.setPlaybackState("paused");
 		}
@@ -1442,17 +1467,17 @@ export class PWAudio {
 				this.#requestWakeLock();
 			}
 
-			// Detect and recover from stalled playback.
+			// Detect and recover from stalled or unexpectedly paused playback.
 			// When Chrome suspends the audio pipeline for a background tab, the
-			// audio element reports !paused but currentTime stops advancing.
-			// Check if we need to recover.
-			if (!this.#audio.paused && !this.#stopped && !this.#userPaused) {
+			// audio element may report paused=true or !paused with currentTime
+			// not advancing. Check both conditions.
+			if (!this.#stopped && !this.#userPaused) {
 				const stalledFor = (Date.now() - this.#lastWatchdogTimestamp) / 1000;
 				const timeAdvanced = this.#audio.currentTime !== this.#lastWatchdogTime;
 
-				// If currentTime hasn't advanced since the page was backgrounded,
-				// the audio pipeline was suspended. Try to resume.
-				if (!timeAdvanced || stalledFor > PLAYBACK_STALL_THRESHOLD_SECONDS) {
+				// Recover if: audio is paused unexpectedly, OR currentTime
+				// hasn't advanced since page was backgrounded
+				if (this.#audio.paused || !timeAdvanced || stalledFor > PLAYBACK_STALL_THRESHOLD_SECONDS) {
 					this.#recoverPlayback("visibility");
 				}
 			}
@@ -1460,7 +1485,9 @@ export class PWAudio {
 			// Refresh Media Session state — Chrome may have revoked the
 			// notification while the page was hidden. Re-setting playbackState
 			// and position state nudges Chrome to restore the notification.
-			if (this.#mediaSession.enabled && !this.#audio.paused) {
+			// Do this even if audio is paused (Chrome paused it) — setting
+			// playbackState re-creates the notification.
+			if (this.#mediaSession.enabled) {
 				this.#mediaSession.setPlaybackState("playing");
 				this.#mediaSession.setPositionState();
 			}
@@ -1475,8 +1502,12 @@ export class PWAudio {
 	 * Chrome to re-engage the audio pipeline. The audio resumes from the
 	 * same currentTime where it stalled (not from the beginning).
 	 */
-	#recoverPlayback(reason: "visibility" | "watchdog"): void {
-		if (this.#destroyed || this.#audio.paused || this.#stopped || this.#userPaused) return;
+	#recoverPlayback(reason: "visibility" | "watchdog" | "pause"): void {
+		if (this.#destroyed || this.#stopped || this.#userPaused) return;
+		// NOTE: We intentionally do NOT check this.#audio.paused here.
+		// Chrome may have paused the audio element due to background timeout
+		// or OS-level battery optimization. The paused state doesn't mean
+		// playback should stop — it means we need to resume it.
 
 		const stalledFor = (Date.now() - this.#lastWatchdogTimestamp) / 1000;
 
@@ -1526,11 +1557,22 @@ export class PWAudio {
 		this.#lastWatchdogTimestamp = Date.now();
 
 		this.#watchdogTimer = setInterval(() => {
-			if (this.#destroyed || this.#audio.paused || this.#stopped || this.#userPaused) {
-				return; // not playing — nothing to check
+			if (this.#destroyed || this.#stopped || this.#userPaused) {
+				return; // intentionally stopped or user-paused — nothing to check
 			}
 
 			const now = Date.now();
+
+			// Case 1: Unexpected pause — Chrome/OS paused the audio element.
+			// The pause may have been caused by background timeout or battery
+			// optimization. Attempt recovery by calling play().
+			if (this.#audio.paused) {
+				this.#recoverPlayback("watchdog");
+				return;
+			}
+
+			// Case 2: Stalled — audio reports !paused but currentTime isn't
+			// advancing (audio pipeline suspended).
 			const elapsed = (now - this.#lastWatchdogTimestamp) / 1000;
 			const timeAdvanced = this.#audio.currentTime !== this.#lastWatchdogTime;
 
