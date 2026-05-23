@@ -67,6 +67,13 @@ describe("Navigation", () => {
 			expect(player.currentTrack).toBeNull();
 		});
 
+		it("clears audio.src when setting empty playlist", () => {
+			const player = new PWAudio({ src: "a.mp3" });
+			expect(player.src).toContain("a.mp3");
+			player.tracks = [];
+			expect(player.src).toBe("");
+		});
+
 		it("emits playlistchange event", () => {
 			const player = new PWAudio({ src: "a.mp3" });
 			const handler = vi.fn();

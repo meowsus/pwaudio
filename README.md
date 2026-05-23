@@ -10,7 +10,12 @@ pwaudio/
 │   └── pwaudio/          # The library
 │       ├── src/
 │       │   ├── index.ts       # Library source
-│       │   └── index.test.ts  # Tests
+│       │   └── __tests__/     # Test suite
+│       │       ├── playback.test.ts
+│       │       ├── playlist.test.ts
+│       │       ├── shuffle.test.ts
+│       │       ├── events.test.ts
+│       │       └── ...
 │       ├── tsup.config.ts     # Build config (ESM + CJS)
 │       └── vitest.config.ts   # Test config (happy-dom)
 ├── apps/

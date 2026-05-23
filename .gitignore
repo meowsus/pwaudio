@@ -20,3 +20,5 @@ Thumbs.db
 
 # Prettier
 .prettiercache
+apps/docs/.vitepress/cache/
+apps/docs/.vitepress/dist/

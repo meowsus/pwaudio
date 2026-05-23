@@ -145,6 +145,17 @@ describe("Playlist Engine", () => {
 			await player.previous();
 			expect(player.currentIndex).toBe(0);
 		});
+
+		it("does not emit trackchange when clamped to same track at boundary", async () => {
+			const player = createPlayerWithTracks();
+			player.currentTime = 0;
+
+			const handler = vi.fn();
+			player.on("trackchange", handler);
+			await player.previous();
+			expect(player.currentIndex).toBe(0);
+			expect(handler).not.toHaveBeenCalled();
+		});
 	});
 
 	describe("goto()", () => {

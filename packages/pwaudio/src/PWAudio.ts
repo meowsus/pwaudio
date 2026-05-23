@@ -628,6 +628,10 @@ export class PWAudio {
 
 		if (newTracks.length === 0) {
 			this.#currentIndex = -1;
+			this.#audio.src = "";
+			this.#audio.removeAttribute("src");
+			this.#lastLoadedTrack = null;
+			this.#lastLoadedIndex = -1;
 			this.#shuffleManager.clear(); // reset stale shuffle state
 		} else if (currentSrc) {
 			const newIndex = newTracks.findIndex((t) => t.src === currentSrc);
@@ -1101,6 +1105,14 @@ export class PWAudio {
 					prevIndex = 0; // clamp to first track
 				}
 			}
+		}
+
+		// If clamped to the same track, just restart instead of emitting trackchange
+		if (prevIndex === this.#currentIndex) {
+			this.#audio.currentTime = 0;
+			this.#endedState = false;
+			if (!this.#audio.paused) return;
+			return this.play();
 		}
 
 		this.#currentIndex = prevIndex;
