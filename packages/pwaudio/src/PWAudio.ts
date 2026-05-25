@@ -7,7 +7,12 @@ import type {
 	PlayerEvent,
 	PlayerEventHandlerMap,
 } from "./types";
-import { DEFAULTS, DESTROYED_ERROR_MESSAGE, NO_TRACK_LOADED_MESSAGE } from "./constants";
+import {
+	DEFAULTS,
+	DESTROYED_ERROR_MESSAGE,
+	NO_TRACK_LOADED_MESSAGE,
+	PRE_FETCH_TRIGGER_PERCENTAGE,
+} from "./constants";
 import { clampVolume, clampPlaybackRate } from "./utils";
 import { EventManager } from "./events";
 import { ShuffleManager } from "./shuffle";
@@ -98,6 +103,9 @@ export class PWAudio {
 
 		// Throttled position state update on timeupdate
 		this.#audio.addEventListener("timeupdate", this.#handleTimeUpdate);
+
+		// Pre-fetch next track src before current track ends (Android background fix)
+		this.#audio.addEventListener("timeupdate", this.#handlePreFetch);
 
 		// Full position state update on ratechange
 		this.#audio.addEventListener("ratechange", this.#handleRateChange);
@@ -381,6 +389,8 @@ export class PWAudio {
 	}
 
 	#preloadStrategy: PreloadStrategy = DEFAULTS.preload;
+	#nextPrefetchedSrc: string | null = null;
+	#lastPrefetchedIndex: number = -1;
 
 	get preload(): PreloadStrategy {
 		if (this.#destroyed) return "none";
@@ -557,6 +567,8 @@ export class PWAudio {
 
 		// Capture generation to detect if another operation supersedes us
 		const generation = this.#playGeneration;
+		// Capture previousIndex for trackchange events in this handler
+		const previousIndex = this.#currentIndex;
 
 		if (this.#repeat === "one") {
 			this.#endedState = false;
@@ -584,7 +596,35 @@ export class PWAudio {
 		if (this.#currentIndex < this.#tracks.length - 1 || this.#shuffle === "on") {
 			// If a new track was loaded since the ended event fired, don't advance
 			if (this.#playGeneration !== generation) return;
-			void this.next().catch(() => {});
+
+			// Use pre-fetched src if available and still valid — this fixes Android
+			// background playback where play() fails silently after the screen locks.
+			// By switching src synchronously before play(), we avoid the async gap
+			// that causes Chrome to revoke the gesture token.
+			const nextIndex = this.#getNextTrackIndex();
+			if (this.#nextPrefetchedSrc && nextIndex === this.#lastPrefetchedIndex) {
+				this.#currentIndex = nextIndex;
+				this.#endedState = false;
+				const track = this.#currentTrack();
+				if (!track) return;
+				// Clear pre-fetch before loading new track
+				const prefetchedSrc = this.#nextPrefetchedSrc;
+				this.#nextPrefetchedSrc = null;
+				this.#lastPrefetchedIndex = -1;
+				this.#lastLoadedTrack = track;
+				this.#lastLoadedIndex = this.#currentIndex;
+				this.#audio.src = prefetchedSrc;
+				this.#audio.preload = this.#preloadStrategy;
+				this.#updateMediaSession();
+				this.#events.emit("trackchange", {
+					previousIndex,
+					currentIndex: this.#currentIndex,
+					track,
+				});
+				void this.play().catch(() => {});
+			} else {
+				void this.next().catch(() => {});
+			}
 			return;
 		}
 
@@ -757,6 +797,8 @@ export class PWAudio {
 		this.#playGeneration++;
 		this.#stopped = false;
 		this.#endedState = false;
+		this.#nextPrefetchedSrc = null;
+		this.#lastPrefetchedIndex = -1;
 
 		// Snapshot track info for #handleError — the error event fires
 		// for the src that was loading, which may no longer be current.
@@ -831,6 +873,56 @@ export class PWAudio {
 			this.#mediaSession.throttleSetPositionState();
 		}
 	};
+
+	/**
+	 * Handles timeupdate — pre-fetches the next track's src when within the pre-fetch window.
+	 * This fixes Android background playback: by having the next src ready synchronously
+	 * before the `ended` event fires, we can switch audio.src immediately without any async
+	 * gaps — which prevents Chrome from revoking the gesture token and silencing playback
+	 * when the screen is locked.
+	 *
+	 * Pre-fetch is reset whenever the current track changes (via #loadTrack).
+	 */
+	#handlePreFetch = (): void => {
+		if (this.#destroyed) return;
+		if (this.#stopped) return;
+		if (this.#audio.paused) return;
+
+		const duration = this.#audio.duration;
+		if (!isFinite(duration) || duration <= 0) return;
+
+		// Trigger when we've played at least PRE_FETCH_TRIGGER_PERCENTAGE of the track
+		if (this.#audio.currentTime / duration < PRE_FETCH_TRIGGER_PERCENTAGE) return;
+
+		const nextIndex = this.#getNextTrackIndex();
+		if (nextIndex === -1) return;
+
+		// Only pre-fetch if the next track changed
+		if (nextIndex === this.#lastPrefetchedIndex) return;
+
+		const nextTrack = this.#tracks[nextIndex];
+		if (!nextTrack) return;
+
+		this.#nextPrefetchedSrc = nextTrack.src;
+		this.#lastPrefetchedIndex = nextIndex;
+	};
+
+	/**
+	 * Returns the index of the next track, or -1 if there is no next track.
+	 * Respects repeat mode and shuffle state.
+	 */
+	#getNextTrackIndex(): number {
+		if (this.#tracks.length === 0) return -1;
+
+		if (this.#shuffle === "on") {
+			return this.#shuffleManager.next(this.#repeat === "all");
+		}
+
+		const next = this.#currentIndex + 1;
+		if (next < this.#tracks.length) return next;
+		if (this.#repeat === "all") return 0;
+		return -1;
+	}
 
 	/** Handles ratechange — full position state update. */
 	#handleRateChange = (): void => {

@@ -22,6 +22,9 @@ export const RATE_MAX = 4.0;
 /** Position state update throttle in milliseconds */
 export const POSITION_STATE_THROTTLE_MS = 1000;
 
+/** Pre-fetch the next track when this fraction of the current track has been played (0–1). */
+export const PRE_FETCH_TRIGGER_PERCENTAGE = 0.9;
+
 /** The list of native HTMLAudioElement events that pwaudio proxies */
 export const PROXIED_NATIVE_EVENTS = [
 	"play",
